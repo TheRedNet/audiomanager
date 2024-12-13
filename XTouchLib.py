@@ -12,6 +12,12 @@ class XTouchColor(Enum):
     CYAN = 6
     WHITE = 7
 
+class XTouchEncoderRing(Enum):
+    OFF = 0
+    DOT = 1
+    PAN = 2
+    WRAP = 3
+    SPREAD = 4
 
 
 
@@ -114,7 +120,6 @@ class XTouch:
         self.output.send(mido.Message("pitchwheel", channel=channel, pitch=value))
     
     def __midi_callback(self, msg):
-        print(msg)
         if msg.type == "pitchwheel":
             if self.__fader_callback is not None:
                 self.__fader_callback(msg.channel, np.interp(msg.pitch, self.__fader_pos, self.__fader_db), msg.pitch)
@@ -139,6 +144,20 @@ class XTouch:
                 else:
                     if self.__touch_callback is not None:
                         self.__touch_callback(msg.note-104, False)
+        else:
+            print(msg)
+            
+        def button_led(self, button, state, blink=False):
+            if 0 >= button >= 31:
+                raise IndexError("Button must be between 0 and 31")
+            velocity = 0
+            if state:
+                velocity = 127
+            if blink and state:
+                velocity = 1
+            self.output.send(mido.Message("note_on", note=button, velocity=color))
+        
+        
         
     
     
