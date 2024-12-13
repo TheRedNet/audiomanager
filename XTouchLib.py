@@ -12,6 +12,10 @@ class XTouchColor(Enum):
     CYAN = 6
     WHITE = 7
 
+
+
+
+
 class XTouch:
     __fader_db = [-70, -30, -10, 0, 10]
     __fader_pos = [-8192, -4464, 0, 4384, 8188]
@@ -22,16 +26,21 @@ class XTouch:
     __max_pitchbend = 8188
     __min_pitchbend = -8192
     
-    def __init__(self):
+    def __init__(self, fader_callback=None, encoder_callback=None, button_callback=None, touch_callback=None):
         try:
             input_name, output_name = self.__get_device_name()
         except OSError as e:
             raise e
-        self.input = mido.open_input(input_name)
+        self.input = mido.open_input(input_name, callback=self.__midi_callback)
         self.output = mido.open_output(output_name)
         
         self.__display_colors = [0] * 8
-
+        
+        self.__fader_callback = fader_callback
+        self.__encoder_callback = encoder_callback
+        self.__button_callback = button_callback
+        self.__touch_callback = touch_callback
+        
         self.output.send(self.__display_hello_msg())
 
     def __del__(self):
@@ -103,3 +112,34 @@ class XTouch:
             value = pos
 
         self.output.send(mido.Message("pitchwheel", channel=channel, pitch=value))
+    
+    def __midi_callback(self, msg):
+        print(msg)
+        if msg.type == "pitchwheel":
+            if self.__fader_callback is not None:
+                self.__fader_callback(msg.channel, np.interp(msg.pitch, self.__fader_pos, self.__fader_db), msg.pitch)
+        elif msg.type == "control_change":
+            if self.__encoder_callback is not None:
+                ticks = msg.value % 64
+                if msg.control > 64:
+                    ticks = -ticks
+                self.__encoder_callback(msg.control-16, ticks)
+        elif msg.type == "note_on":
+            if 0 <= msg.note <= 31:
+                if msg.velocity == 127:
+                    if self.__button_callback is not None:
+                        self.__button_callback(msg.note, True)
+                else:
+                    if self.__button_callback is not None:
+                        self.__button_callback(msg.note, False)
+            elif 104 <= msg.note <= 111:
+                if msg.velocity == 127:
+                    if self.__touch_callback is not None:
+                        self.__touch_callback(msg.note-104, True)
+                else:
+                    if self.__touch_callback is not None:
+                        self.__touch_callback(msg.note-104, False)
+        
+    
+    
+    
