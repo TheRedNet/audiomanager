@@ -19,8 +19,6 @@ class XTouchEncoderRing(Enum):
     SPREAD = 3
 
 
-
-
 class XTouch:
     __fader_db = [-70, -30, -10, 0, 10]
     __fader_pos = [-8192, -4464, 0, 4384, 8188]
@@ -177,7 +175,3 @@ class XTouch:
                 raise ValueError("Level must be between 0 and 13")
                 
             self.output.send(mido.Message("aftertouch", value=level+16*channel))
-        
-    
-    
-    
