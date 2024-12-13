@@ -1,0 +1,1 @@
+c:/Users/Julian/Documents/CustomScripts/audiomanager/Scripts/python.exe c:/Users/Julian/Documents/CustomScripts/audiomanager/audiomanager.py
