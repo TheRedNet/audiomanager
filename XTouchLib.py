@@ -13,11 +13,10 @@ class XTouchColor(Enum):
     WHITE = 7
 
 class XTouchEncoderRing(Enum):
-    OFF = 0
-    DOT = 1
-    PAN = 2
-    WRAP = 3
-    SPREAD = 4
+    DOT = 0
+    PAN = 1
+    WRAP = 2
+    SPREAD = 3
 
 
 
@@ -157,7 +156,27 @@ class XTouch:
                 velocity = 1
             self.output.send(mido.Message("note_on", note=button, velocity=color))
         
-        
+        def encoder_ring(self, encoder, value, mode = XTouchEncoderRing.DOT, light = False):
+            if 0 >= encoder >= 7:
+                raise IndexError("Encoder must be between 0 and 7")
+            if isinstance(mode, XTouchEncoderRing):
+                mode = mode.value
+            else:
+                if 0 >= mode >= 3:
+                    raise ValueError("Mode must be between 0 and 3 or an instance of XTouchEncoderRing")
+            if 0 >= value >= 15:
+                raise ValueError("Value must be between 0 and 15")
+            if light:
+                mode += 4
+            self.output.send(mido.Message("control_change", control=encoder+48, value=mode*16+value))
+            
+        def level_meter(self, channel, level):
+            if 0 >= channel >= 7:
+                raise IndexError("Channel must be between 0 and 7")
+            if 0 >= level >= 13:
+                raise ValueError("Level must be between 0 and 13")
+                
+            self.output.send(mido.Message("aftertouch", value=level+16*channel))
         
     
     
