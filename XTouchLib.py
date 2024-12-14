@@ -1,6 +1,7 @@
 import mido
 from enum import Enum
 import numpy as np
+import logging
 
 class XTouchColor(Enum):
     OFF = 0
@@ -26,10 +27,11 @@ class XTouch:
     __sysex_suffix = [0xF7]
     __sysex_color_command = [0x72]
     __sysex_display_command = [0x12]
+    __sysex_device_query = [0x00]
     __max_pitchbend = 8188
     __min_pitchbend = -8192
     
-    def __init__(self, fader_callback=None, encoder_callback=None, button_callback=None, touch_callback=None):
+    def __init__(self, fader_callback=None, encoder_callback=None, encoder_press_callback=None, button_callback=None, touch_callback=None):
         try:
             input_name, output_name = self.__get_device_name()
         except OSError as e:
@@ -37,13 +39,18 @@ class XTouch:
         self.input = mido.open_input(input_name, callback=self.__midi_callback)
         self.output = mido.open_output(output_name)
         
+        self.logger = logging.getLogger("XTouch Library")
+        
+        
         self.__display_colors = [0] * 8
         
         self.__fader_callback = fader_callback
         self.__encoder_callback = encoder_callback
+        self.__encoder_press_callback = encoder_press_callback
         self.__button_callback = button_callback
         self.__touch_callback = touch_callback
         
+        self.output.send(mido.Message().from_bytes(self.__sysex_prefix + self.__sysex_device_query + self.__sysex_suffix))
         self.output.send(self.__display_hello_msg())
 
     def __del__(self):
@@ -116,6 +123,50 @@ class XTouch:
 
         self.output.send(mido.Message("pitchwheel", channel=channel, pitch=value))
     
+    def __generate_response_code(self, challenge_code):
+        r = [0] * 4
+        c = challenge_code
+        r[0] = 0x7F & (c[0] + (c[1] ^ 0x0A) - c[3])
+        r[1] = 0x7F & ((c[2] >> 4) ^ (c[0] + c[3]))
+        r[2] = 0x7F & (c[3] - (c[2] << 2) ^ (c[0] | c[1]))
+        r[3] = 0x7F & (c[1] - c[2] + (0xF0 ^ (c[3] << 4)))
+        return r
+
+    
+    def __handle_sysex_handshake(self, msg):
+        # Handshake Procedure:
+        # 1. Host sends 0x00
+        # 2. Device responds with 0x01 7 bytes serial number and 4 bytes challenge code
+        # 3. Host responds with 0x02 7 bytes serial number and 4 bytes response code
+        # 4. Device now has to options: 0x03 to accept or 0x04 to reject both with 7 bytes serial number
+        sysex_host_query_connection = 0x01 # 7 bytes serial number and 4 bytes challenge code sent by device
+        sysex_host_query_response = 0x02 # 7 bytes serial number and 4 bytes response code sent by host
+        sysex_host_accept = 0x03 # 7 bytes serial number sent by device
+        sysex_host_reject = 0x04 # 7 bytes serial number sent by device
+        sysex_version_query = 0x13 # 0x00 as parameter sent by host
+        sysex_version_response = 0x14 # 5 bytes version by device
+        sysex_command_byte = 4
+        if msg.data[sysex_command_byte] == sysex_host_query_connection:
+            response = self.__sysex_prefix + [sysex_host_query_response] + msg.data[5:11] + self.__generate_response_code(msg.data[12:15]) + self.__sysex_suffix
+            self.output.send(mido.Message.from_bytes(response))
+        elif msg.data[sysex_command_byte] == sysex_host_accept:
+            self.logger.info("Handshake successful")
+            self.output.send(mido.Message.from_bytes(self.__sysex_prefix + [sysex_version_query] + [0x00] + self.__sysex_suffix))
+            
+        elif msg.data[sysex_command_byte] == sysex_host_reject:
+            self.logger.error("Handshake failed")
+            self.input.close()
+            self.output.close()
+            raise ConnectionError("Handshake failed")
+        elif msg.data[sysex_command_byte] == sysex_version_response:
+            # v.v.v.v.v
+            vstring = f"{msg.data[5]}.{msg.data[6]}.{msg.data[7]}.{msg.data[8]}.{msg.data[9]}"
+            self.logger.info(f"X-Touch Device version: {vstring}")
+            
+            
+            
+    
+    
     def __midi_callback(self, msg):
         if msg.type == "pitchwheel":
             if self.__fader_callback is not None:
@@ -134,6 +185,13 @@ class XTouch:
                 else:
                     if self.__button_callback is not None:
                         self.__button_callback(msg.note, False)
+            elif 32 <= msg.note <= 39:
+                if msg.velocity == 127:
+                    if self.__encoder_press_callback is not None:
+                        self.__encoder_press_callback(msg.note-32, True)
+                else:
+                    if self.__encoder_press_callback is not None:
+                        self.__encoder_press_callback(msg.note-32, False)
             elif 104 <= msg.note <= 111:
                 if msg.velocity == 127:
                     if self.__touch_callback is not None:
@@ -141,6 +199,9 @@ class XTouch:
                 else:
                     if self.__touch_callback is not None:
                         self.__touch_callback(msg.note-104, False)
+        elif msg.type == "sysex":
+            if 0 <= msg.data[4] <= 4 or msg.data[4] == 0x13 or msg.data[4] == 0x14:
+                self.__handle_sysex_handshake(msg)
         else:
             print(msg)
             
@@ -152,7 +213,7 @@ class XTouch:
                 velocity = 127
             if blink and state:
                 velocity = 1
-            self.output.send(mido.Message("note_on", note=button, velocity=color))
+            self.output.send(mido.Message("note_on", note=button, velocity=velocity))
         
         def encoder_ring(self, encoder, value, mode = XTouchEncoderRing.DOT, light = False):
             if 0 >= encoder >= 7:
@@ -173,5 +234,6 @@ class XTouch:
                 raise IndexError("Channel must be between 0 and 7")
             if 0 >= level >= 13:
                 raise ValueError("Level must be between 0 and 13")
-                
+            if level == 13:
+                level = 14
             self.output.send(mido.Message("aftertouch", value=level+16*channel))
