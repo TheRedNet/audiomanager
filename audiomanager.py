@@ -149,8 +149,11 @@ class FantomMidiHandler(metaclass=ExceptionLoggingMeta):
         if not fantom_output:
             self.logger.info("Fantom output port not set.")
             return
-
-        self.outport = mido.open_output(fantom_output)
+        try:
+            self.outport = mido.open_output(fantom_output)
+        except Exception as e:
+            self.logger.error(f"Error opening output port: {e}", exc_info=True)
+            return
         self.current_program = 10880.001
         whitelisted_programs = [10880.001]
         whitelisted_types = ['note_on', 'note_off', 'control_change']
@@ -168,16 +171,19 @@ class FantomMidiHandler(metaclass=ExceptionLoggingMeta):
             elif msg.type == 'program_change':
                 prog = (msg.program + 1) / 1000.0
                 programm = (self.current_bank_msb << 7) + self.current_bank_lsb + prog
-                is_scene_change = False
                 if 10880.001 <= programm <= 10883.128: 
                     self.current_program = programm
-                    is_scene_change = True
-                self.logger.info(f"Current program: {self.current_program} (Scene change: {is_scene_change})")
+                    self.logger.info(f"Current Scene: {self.current_program}")
+                else:
+                    self.logger.debug(f"Programm Change: {programm}")
             if msg.type in whitelisted_types:
                 forward_midi(msg)
             self.logger.debug(f"MIDI Message: {msg}")
-
-        self.inport = mido.open_input(self.fantom_device, callback=message_callback)
+        try:
+            self.inport = mido.open_input(self.fantom_device, callback=message_callback)
+        except Exception as e:
+            self.logger.error(f"Error opening input port: {e}", exc_info=True)
+            return
         self.logger.info("FANTOM device connected.")
 
 class AudioDeviceMonitor(metaclass=ExceptionLoggingMeta):
@@ -260,7 +266,8 @@ class LogWindow(metaclass=ExceptionLoggingMeta):
         self.root.geometry("800x600")  # Set initial size
         self.root.minsize(400, 300)  # Set minimum size
 
-        self.text_area = ctk.CTkTextbox(root, wrap="word")
+        self.text_area = ctk.CTkTextbox(root, wrap="word", state="normal")
+        self.text_area.bind("<Key>", lambda e: "break")  # Prevent user from typing
         self.text_area.pack(padx=10, pady=10, expand=True, fill="both")
 
         self.log_level_var = ctk.StringVar(value='INFO')
@@ -317,7 +324,7 @@ class LogWindow(metaclass=ExceptionLoggingMeta):
         self.text_area.tag_config(level, foreground=color_map.get(level, 'white'))
         #print(f"Inserted line with level {level} and color {color_map.get(level, 'black')}")  # Debug print
 
-class TrayIcon(metaclass=ExceptionLoggingMeta):
+class TrayIcon():
     def __init__(self):
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.info("Initializing...")
@@ -378,6 +385,7 @@ class TrayIcon(metaclass=ExceptionLoggingMeta):
     def run(self):
         self.icon.run()
 
+
 def main():
     logger = logging.getLogger("Main")
     logger.info("Starting...")
@@ -411,6 +419,9 @@ def main():
 
 # Main
 if __name__ == "__main__":
-    reboot = main()
+    try:
+        reboot = main()
+    except Exception as e:
+        logging.error(f"Exception in main: {e}", exc_info=True)
     if reboot:
         os.system('.\\Scripts\\python.exe audiomanager.py')
