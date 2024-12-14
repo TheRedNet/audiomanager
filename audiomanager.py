@@ -15,6 +15,7 @@ import asyncio
 
 # Set to True to restart the script after closing the tray icon
 reboot = False
+
 # Configure logging to write to a file
 logging.basicConfig(level=logging.INFO, 
                     format='[%(asctime)s][%(levelname)s][%(name)s] %(message)s', 
@@ -23,7 +24,26 @@ logging.basicConfig(level=logging.INFO,
                     )
 coloredlogs.install(level='INFO', fmt='[%(asctime)s][%(levelname)s][%(name)s] %(message)s')
 
-class Notificator:
+def log_exceptions(logger):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Exception in {func.__name__}: {e}", exc_info=True)
+                raise
+        return wrapper
+    return decorator
+
+class ExceptionLoggingMeta(type):
+    def __new__(cls, name, bases, dct):
+        logger = logging.getLogger(name)
+        for attr, value in dct.items():
+            if callable(value):
+                dct[attr] = log_exceptions(logger)(value)
+        return super().__new__(cls, name, bases, dct)
+
+class Notificator(metaclass=ExceptionLoggingMeta):
     def __init__(self):
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.info("Initializing...")
@@ -39,9 +59,8 @@ class Notificator:
     def notification(self, title, message):
         notification_thread = Thread(target=self.show_notification_thread, args=(title, message))
         notification_thread.start()
-        
 
-class VoicemeeterHandler:
+class VoicemeeterHandler(metaclass=ExceptionLoggingMeta):
     def __init__(self, api_type):
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.info("Initializing...")
@@ -58,9 +77,8 @@ class VoicemeeterHandler:
     def restart(self):
         self.logger.info("Restarting Voicemeeter...")
         self.vm.command.restart()
-        
 
-class FantomMidiHandler:
+class FantomMidiHandler(metaclass=ExceptionLoggingMeta):
     def __init__(self):
         self.logger = logging.getLogger("FANTOM-08 MIDI Handler")
         self.logger.info("Initializing...")
@@ -73,22 +91,22 @@ class FantomMidiHandler:
         self.current_program = 0
         self.current_bank_msb = 0
         self.current_bank_lsb = 0
-        
+
     def is_running(self):
         return self.running
-            
+
     def find_fantom(self):
         for port in mido.get_input_names():
             if 'FANTOM-06' in port and all(keyword not in port for keyword in ['MIDI', 'DAW']):
                 return port
         return None
-    
+
     def find_loop_output(self):
         for port in mido.get_output_names():
             if 'FANTOM filterd' in port:
                 return port
         return None
-    
+
     def check_fantom_devices(self):
         if self.running:
             return False
@@ -111,7 +129,7 @@ class FantomMidiHandler:
             self.stop()
             return True
         return False
-    
+
     def stop(self):
         if self.running:
             self.logger.info("Stopping...")
@@ -122,7 +140,7 @@ class FantomMidiHandler:
             if self.outport:
                 self.outport.close()
                 self.outport = None
-    
+
     def handle_midi(self):
         if self.running:
             return
@@ -131,30 +149,23 @@ class FantomMidiHandler:
         if not fantom_output:
             self.logger.info("Fantom output port not set.")
             return
-        
-        try:
-            self.outport = mido.open_output(fantom_output)
-        except Exception as e:
-            self.logger.error(f"Error opening MIDI output port: {e}")
-            return
-        
+
+        self.outport = mido.open_output(fantom_output)
         self.current_program = 10880.001
         whitelisted_programs = [10880.001]
         whitelisted_types = ['note_on', 'note_off', 'control_change']
-        
+
         def forward_midi(msg):
             if self.current_program in whitelisted_programs:
                 self.outport.send(msg)
-        
+
         def message_callback(msg):
-            
             if msg.type == 'control_change':
                 if msg.control == 0:  # Bank Select MSB
                     self.current_bank_msb = msg.value
                 elif msg.control == 32:  # Bank Select LSB
                     self.current_bank_lsb = msg.value
             elif msg.type == 'program_change':
-                
                 prog = (msg.program + 1) / 1000.0
                 programm = (self.current_bank_msb << 7) + self.current_bank_lsb + prog
                 is_scene_change = False
@@ -165,17 +176,11 @@ class FantomMidiHandler:
             if msg.type in whitelisted_types:
                 forward_midi(msg)
             self.logger.debug(f"MIDI Message: {msg}")
-        
-        try:
-            self.inport = mido.open_input(self.fantom_device, callback=message_callback)
-        except Exception as e:
-            self.logger.error(f"Error opening MIDI input port: {e}")
+
+        self.inport = mido.open_input(self.fantom_device, callback=message_callback)
         self.logger.info("FANTOM device connected.")
 
-
-
-
-class AudioDeviceMonitor:
+class AudioDeviceMonitor(metaclass=ExceptionLoggingMeta):
     def __init__(self, fantom_handler=FantomMidiHandler, voicemeeter_handler=VoicemeeterHandler):
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.info("Initializing...")
@@ -191,7 +196,6 @@ class AudioDeviceMonitor:
     def get_device_count(self):
         return self.p.get_device_count()
 
-            
     def monitor_devices(self):
         while self.running:
             self.logger.debug("Checking audio devices...")
@@ -218,8 +222,6 @@ class AudioDeviceMonitor:
                     if not self.change_in_previous_check and not was_fantom:
                         self.notify.notification("Audio Device Change", "Audio device disconnected.")
                         
-                    
-                
                 self.previous_devices = current_devices
                 self.change_in_previous_check = True
                 wait_time = 10
@@ -232,7 +234,6 @@ class AudioDeviceMonitor:
                 if wait_time % 5 == 0 and not self.change_in_previous_check:
                     if self.fantom_handler.is_running():
                         self.fantom_handler.check_if_fantom_disconnected()
-                
                 
                 time.sleep(frequency)
                 wait_time -= frequency
@@ -250,10 +251,7 @@ class AudioDeviceMonitor:
         if hasattr(self, 'monitor_thread'):
             self.monitor_thread.join()
 
-
-
-
-class LogWindow:
+class LogWindow(metaclass=ExceptionLoggingMeta):
     def __init__(self, root):
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.info("Initializing...")
@@ -276,7 +274,7 @@ class LogWindow:
         self.line_count = 0
         self.update_log()
         self.closed = True
-    
+
     def change_log_level(self, level):
         logging.getLogger().setLevel(level)
         coloredlogs.set_level(level)
@@ -295,7 +293,7 @@ class LogWindow:
             print("Log file not found.")
         except Exception as e:
             print(f"Error reading log file: {e}")
-        self.root.after(1, self.update_log)
+        self.root.after(1000, self.update_log)
 
     def apply_coloredlogs(self, line):
         color_map = {
@@ -318,9 +316,8 @@ class LogWindow:
         # Configure the tag for the log level
         self.text_area.tag_config(level, foreground=color_map.get(level, 'white'))
         #print(f"Inserted line with level {level} and color {color_map.get(level, 'black')}")  # Debug print
-        
-        
-class TrayIcon:
+
+class TrayIcon(metaclass=ExceptionLoggingMeta):
     def __init__(self):
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.info("Initializing...")
@@ -336,8 +333,7 @@ class TrayIcon:
         self.logger.info("Restarting...")
         self.reboot = True
         self.on_exit(icon, item)
-        
-    
+
     def create_image(self):
         width = 64
         height = 64
@@ -368,20 +364,19 @@ class TrayIcon:
             root.mainloop()
         else:
             self.close_log_window()
-    
+
     def on_close_log_window(self):
         self.lwh.closed = True
         self.lwh.root.destroy()
         self.lwh = None
-    
+
     def close_log_window(self):
         if self.lwh:
             self.lwh.root.destroy()
             self.lwh = None
-    
+
     def run(self):
         self.icon.run()
-
 
 def main():
     logger = logging.getLogger("Main")
@@ -413,8 +408,6 @@ def main():
     reboot = tray_icon.reboot
     exit()
     return reboot
-    
-    
 
 # Main
 if __name__ == "__main__":
