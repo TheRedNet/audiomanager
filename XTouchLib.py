@@ -19,6 +19,19 @@ class XTouchEncoderRing(Enum):
     WRAP = 2
     SPREAD = 3
 
+class XTouchButton(Enum):
+    REC = 0
+    SOLO = 1
+    MUTE = 2
+    SELECT = 3
+
+
+# Callback functions are called with the following arguments:
+# fader_callback(channel, db, pos)
+# encoder_callback(channel, ticks)
+# encoder_press_callback(cahnnel, is_pressed)
+# button_callback(channel, button, is_pressed)
+# touch_callback(channel, is_touched)
 
 class XTouch:
     __fader_db = [-70, -30, -10, 0, 10]
@@ -179,12 +192,22 @@ class XTouch:
                 self.__encoder_callback(msg.control-16, ticks)
         elif msg.type == "note_on":
             if 0 <= msg.note <= 31:
+                button = None
+                if msg.note  <= 7:
+                    button = XTouchButton.REC
+                elif 8 <= msg.note <= 15:
+                    button = XTouchButton.SOLO
+                elif 16 <= msg.note <= 23:
+                    button = XTouchButton.MUTE
+                elif 24 <= msg.note <= 31:
+                    button = XTouchButton.SELECT
+                channel = msg.note % 8
                 if msg.velocity == 127:
                     if self.__button_callback is not None:
-                        self.__button_callback(msg.note, True)
+                        self.__button_callback(channel, button, True)
                 else:
                     if self.__button_callback is not None:
-                        self.__button_callback(msg.note, False)
+                        self.__button_callback(button, False)
             elif 32 <= msg.note <= 39:
                 if msg.velocity == 127:
                     if self.__encoder_press_callback is not None:
