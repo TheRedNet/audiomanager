@@ -4,16 +4,14 @@ import time
 from threading import Thread
 import mido
 import logging
-import tkinter as tk
-from tkinter import scrolledtext
 import pystray
 from pystray import MenuItem as item
 from PIL import Image, ImageDraw, ImageFont
 import coloredlogs
-import re
 import os
 from win11toast import toast
-
+import customtkinter as ctk
+import asyncio
 
 # Set to True to restart the script after closing the tray icon
 reboot = False
@@ -30,11 +28,14 @@ class Notificator:
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.info("Initializing...")
 
-    def show_notification_thread(self, title, message):
+    async def show_notification_async(self, title, message):
         self.logger.debug(f"Showing notification: {title} - {message}")
         toast(title, message, duration="short")
         self.logger.debug("Notification shown.")
-        
+
+    def show_notification_thread(self, title, message):
+        asyncio.run(self.show_notification_async(title, message))
+
     def notification(self, title, message):
         notification_thread = Thread(target=self.show_notification_thread, args=(title, message))
         notification_thread.start()
@@ -155,10 +156,12 @@ class FantomMidiHandler:
             elif msg.type == 'program_change':
                 
                 prog = (msg.program + 1) / 1000.0
-                
-                
-                self.current_program = (self.current_bank_msb << 7) + self.current_bank_lsb + prog
-                self.logger.info(f"Current program: {self.current_program}")
+                programm = (self.current_bank_msb << 7) + self.current_bank_lsb + prog
+                is_scene_change = False
+                if 10880.001 <= programm <= 10883.128: 
+                    self.current_program = programm
+                    is_scene_change = True
+                self.logger.info(f"Current program: {self.current_program} (Scene change: {is_scene_change})")
             if msg.type in whitelisted_types:
                 forward_midi(msg)
             self.logger.debug(f"MIDI Message: {msg}")
@@ -256,18 +259,24 @@ class LogWindow:
         self.logger.info("Initializing...")
         self.root = root
         self.root.title("Log Window")
-        self.text_area = scrolledtext.ScrolledText(root, wrap=tk.WORD, width=150, height=50)
-        self.text_area.pack()
-        self.log_level_var = tk.StringVar(value='INFO')
-        self.log_level_menu = tk.OptionMenu(root, self.log_level_var, 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', command=self.change_log_level)
-        self.log_level_menu.pack()
-        self.auto_scroll_var = tk.BooleanVar(value=True)
-        self.auto_scroll_check = tk.Checkbutton(root, text="Auto Scroll", variable=self.auto_scroll_var)
-        self.auto_scroll_check.pack()
+        self.root.geometry("800x600")  # Set initial size
+        self.root.minsize(400, 300)  # Set minimum size
+
+        self.text_area = ctk.CTkTextbox(root, wrap="word")
+        self.text_area.pack(padx=10, pady=10, expand=True, fill="both")
+
+        self.log_level_var = ctk.StringVar(value='INFO')
+        self.log_level_menu = ctk.CTkOptionMenu(root, variable=self.log_level_var, values=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], command=self.change_log_level)
+        self.log_level_menu.pack(padx=10, pady=10, fill="x")
+
+        self.auto_scroll_var = ctk.BooleanVar(value=True)
+        self.auto_scroll_check = ctk.CTkCheckBox(root, text="Auto Scroll", variable=self.auto_scroll_var)
+        self.auto_scroll_check.pack(padx=10, pady=10, fill="x")
+
         self.line_count = 0
         self.update_log()
         self.closed = True
-
+    
     def change_log_level(self, level):
         logging.getLogger().setLevel(level)
         coloredlogs.set_level(level)
@@ -281,7 +290,7 @@ class LogWindow:
                     self.apply_coloredlogs(line)
                 self.line_count = f.tell()
                 if self.auto_scroll_var.get():
-                    self.text_area.yview(tk.END)
+                    self.text_area.yview(ctk.END)
         except FileNotFoundError:
             print("Log file not found.")
         except Exception as e:
@@ -291,7 +300,7 @@ class LogWindow:
     def apply_coloredlogs(self, line):
         color_map = {
             'DEBUG': 'purple',
-            'INFO': 'black',
+            'INFO': 'white',
             'WARNING': 'yellow',
             'ERROR': 'red',
             'CRITICAL': 'dark_red'
@@ -304,10 +313,10 @@ class LogWindow:
         level = split_line[1].strip('[').strip()
 
         # Insert the line into the text area
-        self.text_area.insert(tk.END, line , level)
+        self.text_area.insert(ctk.END, line , level)
 
         # Configure the tag for the log level
-        self.text_area.tag_config(level, foreground=color_map.get(level, 'black'))
+        self.text_area.tag_config(level, foreground=color_map.get(level, 'white'))
         #print(f"Inserted line with level {level} and color {color_map.get(level, 'black')}")  # Debug print
         
         
@@ -352,7 +361,7 @@ class TrayIcon:
     def show_log_window(self, icon, item):
         if self.lwh is None:
             self.logger.info("Creating log window...")
-            root = tk.Tk()
+            root = ctk.CTk()
             self.lwh = LogWindow(root)
             self.lwh.closed = False
             root.protocol("WM_DELETE_WINDOW", self.on_close_log_window)
