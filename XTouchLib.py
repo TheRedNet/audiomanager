@@ -228,9 +228,7 @@ class XTouch:
         else:
             print(msg)
             
-        def button_led(self, channel: int, button, state, blink=False):
-            if 0 >= button >= 31:
-                raise IndexError("Button must be between 0 and 31")
+        def button_led(self, channel, button, state, blink=False):
             if not isinstance(state, bool):
                 raise TypeError("State must be a boolean")
             if not isinstance(blink, bool):
@@ -240,14 +238,14 @@ class XTouch:
             if isinstance(button, XTouchButton):
                 button = button.value
             else:
-                if 0 >= button >= 31:
+                if 0 >= button >= 3:
                     raise ValueError("Button must be between 0 and 3 or an instance of XTouchButton")
             velocity = 0
             if state:
                 velocity = 127
             if blink and state:
                 velocity = 1
-            int_button = button.value*8 + channel
+            int_button = button*8 + channel
             self.output.send(mido.Message("note_on", note=button, velocity=velocity))
         
         def encoder_ring(self, encoder, value, mode = XTouchEncoderRing.DOT, light = False):
