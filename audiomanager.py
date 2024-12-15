@@ -210,7 +210,7 @@ class AudioDeviceMonitor(metaclass=ExceptionLoggingMeta):
             current_devices = p.get_device_count()
             p.terminate()
             end_time = time.time()
-            wait_time = 10
+            wait_time = 5
             self.logger.debug(f"Current audio devices: {current_devices} (Time taken: {end_time - start_time:.4f}s)")
             if current_devices != self.previous_devices:
                 self.logger.info("Audio device change detected!")
@@ -266,7 +266,7 @@ class LogWindow(metaclass=ExceptionLoggingMeta):
         self.root.geometry("800x600")  # Set initial size
         self.root.minsize(400, 300)  # Set minimum size
 
-        self.text_area = ctk.CTkTextbox(root, wrap="word", state="normal")
+        self.text_area = ctk.CTkTextbox(root, wrap="word", state="normal", font=("Courier New", 15))
         self.text_area.bind("<Key>", lambda e: "break")  # Prevent user from typing
         self.text_area.pack(padx=10, pady=10, expand=True, fill="both")
 
@@ -300,7 +300,7 @@ class LogWindow(metaclass=ExceptionLoggingMeta):
             print("Log file not found.")
         except Exception as e:
             print(f"Error reading log file: {e}")
-        self.root.after(1000, self.update_log)
+        self.root.after(500, self.update_log)
 
     def apply_coloredlogs(self, line):
         color_map = {
