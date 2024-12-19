@@ -7,12 +7,14 @@ from tkinter import Canvas
 
 class App:
     def __init__(self, root, vm):
-        self.canvas_height = 500
+        self.canvas_height = 400
         self.bar_count = 16
         self.bar_width = 35
         self.bar_spacing = 10
         self.top_margin = 5
         self.section_devider_width = 3
+        
+        self.font = None
         
         self.root = root
         self.root.title("Level Meters")
@@ -33,6 +35,7 @@ class App:
         self.decay_speed = 100
         self.real_levels = [0] * 16
         self.decay_next = [False] * 16
+        
 
         # Initialize Voicemeeter API
 
@@ -101,7 +104,7 @@ class App:
             self.real_levels = levels
             self.update_ui()
             self.vm.clear_dirty()
-            self.delay = np.interp(max(levels), [-200, -100, 10], [0.2, 0.1, 0.05])
+            self.delay = np.interp(max(levels), [-100, 10], [0.1, 0.05])
         self.root.after(int(self.delay*1000), self.update_levels)
         self.start_time = start_time
         self.finish_time = time.time()
@@ -115,7 +118,7 @@ class App:
         self.canvas.delete("all")
         bar_width = self.bar_width
         extra_space = self.bar_spacing
-        self.canvas.create_text(2, 2, text=f"Render {self.render_time}ms Active {self.active_time}ms Wait {int(self.delay*1000)}ms", anchor="nw", fill="white")
+        self.canvas.create_text(2, 2, text=f"Render {self.render_time}ms Active {self.active_time}ms Wait {int(self.delay*1000)}ms", anchor="nw", fill="white", font=self.font)
         for i in range(16):
             lev = (int(np.interp(int(min(13, max(0, self.level_interpolation(self.levels[i])-self.decay_list[i]))), [0,1, 12,13], [0,1, sections-1, sections])))
             height = self.canvas_height * lev/sections
@@ -144,17 +147,17 @@ class App:
                 self.canvas.create_rectangle(x0, y, x1, y1, fill="green", outline="green")
             
             
-            self.canvas.create_text(x0 + bar_width/2, y1+1, text=f"{i}", anchor="n", fill="white")
-            self.canvas.create_text(x0 + bar_width/2, y1-15, text=f"{lev}", anchor="n", fill="black")
+            self.canvas.create_text(x0 + bar_width/2, y1+1, text=f"{i}", anchor="n", fill="white", font=self.font)
+            self.canvas.create_text(x0 + bar_width/2, y1-15, text=f"{lev}", anchor="n", fill="black", font=self.font)
             if lev == 0:
-                self.canvas.create_text(x0 + bar_width/2, y0-2, text=f"{self.real_levels[i]:.1f}", anchor="s", fill="white")
+                self.canvas.create_text(x0 + bar_width/2, y0-2, text=f"{self.real_levels[i]:.1f}", anchor="s", fill="white", font=self.font)
             else:
-                self.canvas.create_text(x0 + bar_width/2, y0+12+self.section_devider_width, text=f"{self.real_levels[i]:.1f}", anchor="s", fill="black")
+                self.canvas.create_text(x0 + bar_width/2, y0+12+self.section_devider_width, text=f"{self.real_levels[i]:.1f}", anchor="s", fill="black", font=self.font)
                 
             #display the word "clip" in the middle of every section 8
-            self.canvas.create_text(x0 + bar_width/2, self.canvas_height/sections/2 + self.top_margin, text="clip", anchor="center", fill="black")
+            self.canvas.create_text(x0 + bar_width/2, self.canvas_height/sections/2 + self.top_margin, text="clip", anchor="center", fill="black", font=self.font)
             #display the word "sig" in the middle of every section 1
-            self.canvas.create_text(x0 + bar_width/2, self.canvas_height/sections*15/2 + self.top_margin, text="sig", anchor="center", fill="black")
+            self.canvas.create_text(x0 + bar_width/2, self.canvas_height/sections*15/2 + self.top_margin, text="sig", anchor="center", fill="black" , font=self.font)
         
         for i in range(1, sections):
             y = self.canvas_height * i/sections + self.top_margin - self.section_devider_width/2
