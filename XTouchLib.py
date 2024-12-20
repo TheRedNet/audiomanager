@@ -31,7 +31,7 @@ class XTouchButton(Enum):
 
 class XTouch:
     """Class to interact with the XTouch device."""
-    __fader_db = [-70, -30, -10, 0, 10]
+    __fader_db = [-70, -30, -10, 0, 8]
     __fader_pos = [-8192, -4464, 0, 4384, 8188]
     __sysex_prefix = [0xF0, 0x00, 0x00, 0x66, 0x15]
     __sysex_suffix = [0xF7]
@@ -68,8 +68,9 @@ class XTouch:
         self.__button_callback = button_callback
         self.__touch_callback = touch_callback
         
-        self.output.send(mido.Message().from_bytes(self.__sysex_prefix + self.__sysex_device_query + self.__sysex_suffix))
+        #self.output.send(mido.Message.from_bytes(self.__sysex_prefix + self.__sysex_device_query + self.__sysex_suffix))
         self.output.send(self.__display_hello_msg())
+
 
     def __del__(self):
         """Clean up the XTouch device."""
@@ -131,7 +132,7 @@ class XTouch:
         msgbytearray = self.__sysex_prefix + self.__sysex_display_command + [0x00] + mackie_string + self.__sysex_suffix
         return mido.Message.from_bytes(msgbytearray)
 
-    def display(self, text, channel, row):
+    def set_display(self, text, channel, row):
         """
         Display text on the XTouch device.
 
@@ -147,7 +148,7 @@ class XTouch:
         offset = channel * 7 + row * 8 * 7
         self.output.send(self.__display_msg(text, offset))
 
-    def display_color(self, color, channel):
+    def set_display_color(self, color, channel):
         """
         Set the display color on the XTouch device.
 
@@ -217,21 +218,28 @@ class XTouch:
         # 2. Device responds with 0x01 7 bytes serial number and 4 bytes challenge code
         # 3. Host responds with 0x02 7 bytes serial number and 4 bytes response code
         # 4. Device now has two options: 0x03 to accept or 0x04 to reject both with 7 bytes serial number
-        sysex_host_query_connection = 0x01  # 7 bytes serial number and 4 bytes challenge code sent by device
-        sysex_host_query_response = 0x02  # 7 bytes serial number and 4 bytes response code sent by host
-        sysex_host_accept = 0x03  # 7 bytes serial number sent by device
-        sysex_host_reject = 0x04  # 7 bytes serial number sent by device
+        sysex_host_query_connection = 0x1  # 7 bytes serial number and 4 bytes challenge code sent by device
+        sysex_host_query_response = 0x2  # 7 bytes serial number and 4 bytes response code sent by host
+        sysex_host_accept = 0x3  # 7 bytes serial number sent by device
+        sysex_host_reject = 0x4  # 7 bytes serial number sent by device
         sysex_version_query = 0x13  # 0x00 as parameter sent by host
         sysex_version_response = 0x14  # 5 bytes version by device
         sysex_command_byte = 4
+        print(hex(msg.data[sysex_command_byte]))
+        print(msg.data)
         if msg.data[sysex_command_byte] == sysex_host_query_connection:
-            response = self.__sysex_prefix + [sysex_host_query_response] + msg.data[5:11] + self.__generate_response_code(msg.data[12:15]) + self.__sysex_suffix
+            print("Handshake response sent")
+            response = self.__sysex_prefix + [sysex_host_query_response] + list(msg.data[5:12]) + list(self.__generate_response_code(list(msg.data[12:16]))) + self.__sysex_suffix
+            print("Responding with: ", (mido.Message.from_bytes(response)).hex())
             self.output.send(mido.Message.from_bytes(response))
+            self.output.send(mido.Message.from_bytes(self.__sysex_prefix + [sysex_version_query] + [0x00] + self.__sysex_suffix))
         elif msg.data[sysex_command_byte] == sysex_host_accept:
             self.logger.info("Handshake successful")
+            print("Handshake successful")
             self.output.send(mido.Message.from_bytes(self.__sysex_prefix + [sysex_version_query] + [0x00] + self.__sysex_suffix))
         elif msg.data[sysex_command_byte] == sysex_host_reject:
             self.logger.error("Handshake failed")
+            print("Handshake failed")
             self.input.close()
             self.output.close()
             raise ConnectionError("Handshake failed")
@@ -240,60 +248,64 @@ class XTouch:
             vstring = f"{msg.data[5]}.{msg.data[6]}.{msg.data[7]}.{msg.data[8]}.{msg.data[9]}"
             self.logger.info(f"X-Touch Device version: {vstring}")
 
-    def __midi_callback(self, msg):
+    def __midi_callback(self, msg: mido.Message):
         """
         Handle incoming MIDI messages.
 
         :param msg: The MIDI message.
         """
-        if msg.type == "pitchwheel":
-            if self.__fader_callback is not None:
-                self.__fader_callback(msg.channel, np.interp(msg.pitch, self.__fader_pos, self.__fader_db), msg.pitch)
-        elif msg.type == "control_change":
-            if self.__encoder_callback is not None:
-                ticks = msg.value % 64
-                if msg.control > 64:
-                    ticks = -ticks
-                self.__encoder_callback(msg.control - 16, ticks)
-        elif msg.type == "note_on":
-            if 0 <= msg.note <= 31:
-                button = None
-                if msg.note <= 7:
-                    button = XTouchButton.REC
-                elif 8 <= msg.note <= 15:
-                    button = XTouchButton.SOLO
-                elif 16 <= msg.note <= 23:
-                    button = XTouchButton.MUTE
-                elif 24 <= msg.note <= 31:
-                    button = XTouchButton.SELECT
-                channel = msg.note % 8
-                if msg.velocity == 127:
-                    if self.__button_callback is not None:
-                        self.__button_callback(channel, button, True)
-                else:
-                    if self.__button_callback is not None:
-                        self.__button_callback(channel, button, False)
-            elif 32 <= msg.note <= 39:
-                if msg.velocity == 127:
-                    if self.__encoder_press_callback is not None:
-                        self.__encoder_press_callback(msg.note - 32, True)
-                else:
-                    if self.__encoder_press_callback is not None:
-                        self.__encoder_press_callback(msg.note - 32, False)
-            elif 104 <= msg.note <= 111:
-                if msg.velocity == 127:
-                    if self.__touch_callback is not None:
-                        self.__touch_callback(msg.note - 104, True)
-                else:
-                    if self.__touch_callback is not None:
-                        self.__touch_callback(msg.note - 104, False)
-        elif msg.type == "sysex":
-            if 0 <= msg.data[4] <= 4 or msg.data[4] == 0x13 or msg.data[4] == 0x14:
-                self.__handle_sysex_handshake(msg)
-        else:
-            print(msg)
+        try:
+            if msg.type == "pitchwheel":
+                if self.__fader_callback is not None:
+                    self.__fader_callback(msg.channel, np.interp(msg.pitch, self.__fader_pos, self.__fader_db), msg.pitch)
+            elif msg.type == "control_change":
+                if self.__encoder_callback is not None:
+                    ticks = msg.value % 64
+                    if msg.value < 64:
+                        ticks = -ticks
+                    self.__encoder_callback(msg.control - 16, ticks)
+            elif msg.type == "note_on":
+                if 0 <= msg.note <= 31:
+                    button = None
+                    if msg.note <= 7:
+                        button = XTouchButton.REC
+                    elif 8 <= msg.note <= 15:
+                        button = XTouchButton.SOLO
+                    elif 16 <= msg.note <= 23:
+                        button = XTouchButton.MUTE
+                    elif 24 <= msg.note <= 31:
+                        button = XTouchButton.SELECT
+                    channel = msg.note % 8
+                    if msg.velocity == 127:
+                        if self.__button_callback is not None:
+                            self.__button_callback(channel, button, True)
+                    else:
+                        if self.__button_callback is not None:
+                            self.__button_callback(channel, button, False)
+                elif 32 <= msg.note <= 39:
+                    if msg.velocity == 127:
+                        if self.__encoder_press_callback is not None:
+                            self.__encoder_press_callback(msg.note - 32, True)
+                    else:
+                        if self.__encoder_press_callback is not None:
+                            self.__encoder_press_callback(msg.note - 32, False)
+                elif 104 <= msg.note <= 111:
+                    if msg.velocity == 127:
+                        if self.__touch_callback is not None:
+                            self.__touch_callback(msg.note - 104, True)
+                    else:
+                        if self.__touch_callback is not None:
+                            self.__touch_callback(msg.note - 104, False)
+            elif msg.type == "sysex":
+                print(msg.hex())
+                if 0 <= msg.data[4] <= 4 or msg.data[4] == 0x13 or msg.data[4] == 0x14:
+                    self.__handle_sysex_handshake(msg)
+            else:
+                print(msg)
+        except Exception as e:
+            logging.error(e, exc_info=True)
 
-    def button_led(self, channel, button, state, blink=False):
+    def set_button_led(self, channel, button, state, blink=False):
         """
         Set the LED state for a button on the XTouch device.
 
@@ -324,7 +336,7 @@ class XTouch:
         int_button = button * 8 + channel
         self.output.send(mido.Message("note_on", note=int_button, velocity=velocity))
 
-    def encoder_ring(self, channel, value, mode: XTouchEncoderRing, light=False):
+    def set_encoder_ring(self, channel, value, mode: XTouchEncoderRing, light=False):
         """
         Set the encoder ring mode and value on the XTouch device.
 
@@ -348,7 +360,7 @@ class XTouch:
             mode += 4
         self.output.send(mido.Message("control_change", control=channel + 48, value=mode * 16 + value))
 
-    def level_meter(self, channel, level):
+    def set_level_meter(self, channel, level):
         """
         Set the level meter value on the XTouch device.
 

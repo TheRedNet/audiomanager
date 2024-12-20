@@ -55,7 +55,7 @@ class App:
         #print(self.decay_list)
         for i in range(16):
             if self.decay_list[i] < 13 and not self.level_interpolation(self.prev_levels[i])-self.decay_list[i]-1 == -1:
-                if self.decay_next[i]:
+                if 0==0:
                     self.decay_list[i] += 1
                 else:
                     self.decay_next[i] = True

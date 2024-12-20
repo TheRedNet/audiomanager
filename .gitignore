@@ -4,3 +4,4 @@
 /logfile.log
 /pyvenv.cfg
 __pycache__
+/.venv
