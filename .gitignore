@@ -3,3 +3,4 @@
 /Scripts
 /logfile.log
 /pyvenv.cfg
+__pycache__
