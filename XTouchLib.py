@@ -3,43 +3,9 @@ from enum import Enum
 from typing import Callable
 import numpy as np
 import logging
+from XTouchLibTypes import XTouchButton, XTouchButtonLED, XTouchEncoderRing, XTouchColor, XTouchState, XTouchStateUnchecked
 
-class XTouchColor(Enum):
-    """Enumeration for XTouch colors."""
-    OFF = 0
-    RED = 1
-    GREEN = 2
-    YELLOW = 3
-    BLUE = 4
-    MAGENTA = 5
-    CYAN = 6
-    WHITE = 7
-
-class XTouchEncoderRing(Enum):
-    """Enumeration for XTouch encoder ring modes."""
-    DOT = 0
-    PAN = 1
-    WRAP = 2
-    SPREAD = 3
-
-class XTouchButton(Enum):
-    """Enumeration for XTouch buttons."""
-    REC = 0
-    SOLO = 1
-    MUTE = 2
-    SELECT = 3
-
-class XTouchButtonLED(Enum):
-    """Enumeration for XTouch button LEDs."""
-    OFF = 0
-    ON = 1
-    BLINK = 2
-    
-
-        
-    
-        
-        
+__all__ = ["XTouch", "XTouchButton", "XTouchButtonLED", "XTouchEncoderRing", "XTouchColor", "XTouchState"]
 
 class XTouch:
     """Class to interact with the XTouch device."""
@@ -80,7 +46,7 @@ class XTouch:
         self.__touch_callback = touch_callback
         self.__direct_midi_hook_callback = direct_midi_hook_callback
         
-        self.__state = XTouchState()
+        self.__state = XTouchStateUnchecked()
         
         for msg in self.__display_hello_msg():
             self.output.send(msg)
@@ -347,6 +313,7 @@ class XTouch:
         if light:
             mode += 4
         self.output.send(mido.Message("control_change", control=channel + 48, value=mode * 16 + value))
+        self.__state.encoder_rings[channel] = (mode, value, light)
         
 
     def set_level_meter(self, channel, level):
@@ -435,13 +402,26 @@ class XTouch:
     
     @property
     def state(self):
-        return self.__state
+        return XTouchState(self.__state.copy())
     
     @state.setter
     def state(self, state: XTouchState):
-        old_state = self.__state
-        if state.display_text != old_state.display_text:
-            self.set_raw
+        if not isinstance(state, XTouchState):
+            raise ValueError("State must be an instance of XTouchState")
+        if state.display_colors != self.__state.display_colors:
+            self.set_raw_display_color(state.display_colors)
+        if state.display_text != self.__state.display_text:
+            self.set_raw_display_text(state.display_text, 0)
+        for i in range(8):
+            if state.faders[i] != self.__state.faders[i]:
+                self.set_fader(i, pos=state.faders[i])
+            if state.button_leds[i] != self.__state.button_leds[i]:
+                for j in range(4):
+                    if state.button_leds[i][j] != self.__state.button_leds[i][j]:
+                        self.set_button_led(i, j, state.button_leds[i][j])
+            if state.encoder_rings[i] != self.__state.encoder_rings[i]:
+                self.set_encoder_ring(i, state.encoder_rings[i][1], state.encoder_rings[i][0], state.encoder_rings[i][2])
+        
     
     
     
@@ -507,82 +487,3 @@ class XTouch:
             vstring = f"{msg.data[5]}.{msg.data[6]}.{msg.data[7]}.{msg.data[8]}.{msg.data[9]}"
             self.logger.info(f"X-Touch Device version: {vstring}")
             
-class XTouchState:
-    def __init__(self):
-        self.__display_colors = [7] * 8
-        self.__diplay_text = " " * 112
-        self.__button_leds = [[0] * 4 for _ in range(8)]
-        self.__encoder_rings = [(0,0,False)] * 8
-        self.__faders = [-8192] * 8
-        
-        self.__display_colors_set = False
-        self.__display_text_set = False
-        self.__button_leds_set = False
-        self.__encoder_rings_set = False
-        self.__faders_set = False
-    def reset_change_flags(self):
-        """
-        Reset the change flags for the XTouch state. Used to reduce the ammount of list comparisons needed to send messages to the device when reapplying.
-        WARNING: The XTouch library will not send any messages to the device
-        for changes made up until now when reapplying the state to the device handler.
-        DETAIL: Flags are per property and not per list element.
-        This means that if a single element in a list is changed, the whole list will be resent*.
-        *Resending means the library checks if a list item differs from the internally tracked state and sends the message if it does.
-        This is to prevent sending unnecessary messages to the device.
-        """
-        self.__display_colors_set = False
-        self.__display_text_set = False
-        self.__button_leds_set = False
-        self.__encoder_rings_set = False
-        self.__faders_set = False
-    def get_change_flags(self):
-        """
-        Get the change flags for the XTouch state.
-        :return: Tuple containing the change flags.(display_colors, display_text, button_leds, encoder_rings, faders)
-        """
-        return self.__display_colors_set, self.__display_text_set, self.__button_leds_set, self.__encoder_rings_set, self.__faders_set
-    @property
-    def display_text(self):
-        return self.__diplay_text
-    @display_text.setter
-    def display_text(self, text: str):
-        if len(text) > 112:
-            raise ValueError("Display text cannot be longer than 112 characters")
-        self.__diplay_text = text
-        self.__display_text_set = True
-    @property
-    def display_colors(self):
-        return self.__display_colors
-    @display_colors.setter
-    def display_colors(self, colors: list):
-        if len(colors) != 8:
-            raise ValueError("Color list must be of length 8")
-        self.__display_colors = colors
-        self.__display_colors_set = True
-    @property
-    def button_leds(self):
-        return self.__button_leds
-    @button_leds.setter
-    def button_leds(self, button_leds: list):
-        if len(button_leds) != 8:
-            raise ValueError("Button LED list must be of length 8")
-        self.__button_leds = button_leds
-        self.__button_leds_set = True
-    @property
-    def encoder_rings(self):
-        return self.__encoder_rings
-    @encoder_rings.setter
-    def encoder_rings(self, encoder_rings: list):
-        if len(encoder_rings) != 8:
-            raise ValueError("Encoder ring list must be of length 8")
-        self.__encoder_rings = encoder_rings
-        self.__encoder_rings_set = True
-    @property
-    def faders(self):
-        return self.__faders
-    @faders.setter
-    def faders(self, faders: list):
-        if len(faders) != 8:
-            raise ValueError("Fader list must be of length 8")
-        self.__faders = faders
-        self.__faders_set = True
