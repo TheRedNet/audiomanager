@@ -1,14 +1,14 @@
-import XTouchLib
-from XTouchLib import XTouchColor as XTColor
-from XTouchLib import XTouchButton as XTButton
-from XTouchLib import XTouchEncoderRing as XTEncoder
+import Tests.XTouchLibOld as XTouchLibOld
+from Tests.XTouchLibOld import XTouchColor as XTColor
+from Tests.XTouchLibOld import XTouchButton as XTButton
+from Tests.XTouchLibOld import XTouchEncoderRing as XTEncoder
 import time
 import logging
 import numpy as np
 
 logging.basicConfig(level=logging.DEBUG)
 
-xt = XTouchLib.XTouch
+xt = XTouchLibOld.XTouch
 
 fader_db = [-70, -30, -10, 0, 8]
 fader_posl = [-8192, -4464, 0, 4384, 8188]
@@ -67,7 +67,7 @@ def button_callback(channel, button, value):
         xt.set_button_led(channel,button, False)
     print(f"Channel {channel} Button: {value}")
 
-xt = XTouchLib.XTouch(fader_callback=fader_callback, encoder_callback=encoder_callback, encoder_press_callback=encoder_press_callback, button_callback=button_callback)
+xt = XTouchLibOld.XTouch(fader_callback=fader_callback, encoder_callback=encoder_callback, encoder_press_callback=encoder_press_callback, button_callback=button_callback)
 
 
 
