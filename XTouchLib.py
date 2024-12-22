@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Callable
 import numpy as np
 import logging
+import time
 from XTouchLibTypes import XTouchButton, XTouchButtonLED, XTouchEncoderRing, XTouchColor, XTouchState, XTouchStateUnchecked
 
 __all__ = ["XTouch", "XTouchButton", "XTouchButtonLED", "XTouchEncoderRing", "XTouchColor", "XTouchState"]
@@ -45,6 +46,7 @@ class XTouch:
         self.__button_callback = button_callback
         self.__touch_callback = touch_callback
         self.__direct_midi_hook_callback = direct_midi_hook_callback
+        self.__note_timers = [time.time()] * 48
         
         self.__state = XTouchStateUnchecked()
         
@@ -359,6 +361,8 @@ class XTouch:
                     self.__encoder_callback(msg.control - 16, ticks)
             elif msg.type == "note_on":
                 if 0 <= msg.note <= 31:
+                    time_since_last = time.time() - self.__note_timers[msg.note]
+                    self.__note_timers[msg.note] = time.time()
                     button = None
                     if msg.note <= 7:
                         button = XTouchButton.REC
@@ -371,24 +375,28 @@ class XTouch:
                     channel = msg.note % 8
                     if msg.velocity == 127:
                         if self.__button_callback is not None:
-                            self.__button_callback(channel, button, True)
+                            self.__button_callback(channel, button, True, time_since_last)
                     else:
                         if self.__button_callback is not None:
-                            self.__button_callback(channel, button, False)
+                            self.__button_callback(channel, button, False, time_since_last)
                 elif 32 <= msg.note <= 39:
+                    time_since_last = time.time() - self.__note_timers[msg.note]
+                    self.__note_timers[msg.note] = time.time()
                     if msg.velocity == 127:
                         if self.__encoder_press_callback is not None:
-                            self.__encoder_press_callback(msg.note - 32, True)
+                            self.__encoder_press_callback(msg.note - 32, True, time_since_last)
                     else:
                         if self.__encoder_press_callback is not None:
-                            self.__encoder_press_callback(msg.note - 32, False)
+                            self.__encoder_press_callback(msg.note - 32, False, time_since_last)
                 elif 104 <= msg.note <= 111:
+                    time_since_last = time.time() - self.__note_timers[msg.note-104+40]
+                    self.__note_timers[msg.note-104+40] = time.time()
                     if msg.velocity == 127:
                         if self.__touch_callback is not None:
-                            self.__touch_callback(msg.note - 104, True)
+                            self.__touch_callback(msg.note - 104, True, time_since_last)
                     else:
                         if self.__touch_callback is not None:
-                            self.__touch_callback(msg.note - 104, False)
+                            self.__touch_callback(msg.note - 104, False, time_since_last)
             elif msg.type == "sysex":
                 print(msg.hex())
                 if 0 <= msg.data[4] <= 4 or msg.data[4] == 0x13 or msg.data[4] == 0x14:
@@ -425,11 +433,11 @@ class XTouch:
     
     
     
-    ###########################################################
-    # Handshake functions as per Mackie Control Protocol.
-    # Not required for the X-Touch to funtion.
-    # May be fixed in the future
-    ###########################################################
+    ############################################
+    # Handshake as per Mackie Control Protocol.#
+    # Not required for the X-Touch to funtion. #
+    # May be fixed in the future. Not working  #
+    ############################################
     def __generate_response_code(self, challenge_code):
         """
         Generate a response code for the given challenge code.
