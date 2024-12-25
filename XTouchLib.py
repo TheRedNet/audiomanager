@@ -10,8 +10,8 @@ __all__ = ["XTouch", "XTouchButton", "XTouchButtonLED", "XTouchEncoderRing", "XT
 
 class XTouch:
     """Class to interact with the XTouch device."""
-    __fader_db = [-70, -30, -10, 0, 8]
-    __fader_pos = [-8192, -4464, 0, 4384, 8188]
+    __fader_db = [-70, -60, -30, -10, 0, 8]
+    __fader_pos = [-8192, -7700, -4340, 245, 4720, 8188]
     __sysex_prefix = [0xF0, 0x00, 0x00, 0x66, 0x15]
     __sysex_suffix = [0xF7]
     __sysex_color_command = [0x72]
@@ -151,7 +151,7 @@ class XTouch:
         msglist = []
         for i in range(8):
             # Faders to minimum
-            msglist.append(mido.Message("pitchwheel", channel=i, pitch=self.__min_pitchbend))
+            msglist.append(mido.Message("pitchwheel", channel=i, pitch=4384))
             # Clear encoder rings
             msglist.append(mido.Message("control_change", control=i + 48, value=0))
         
@@ -168,7 +168,7 @@ class XTouch:
         return msglist
 
 
-    def set_display_text(self, text: str, channel: int, row: int):
+    def set_display_text(self, channel: int, row: int, text: str):
         """
         Display text on the XTouch device.
 
@@ -181,11 +181,13 @@ class XTouch:
             raise IndexError("Channel must be between 0 and 7")
         if not (0 <= row <= 1):
             raise IndexError("Row must be between 0 and 1")
+        text = text[:7]
+        text = text.ljust(7, " ")
         offset = channel * 7 + row * 8 * 7
         self.output.send(self.__display_msg(text, offset))
         self.__state.display_text = self.__state.display_text[:offset] + text + self.__state.display_text[offset + len(text):]
         
-    def set_raw_display_text(self, text, offset):
+    def set_raw_display_text(self, offset: int, text: str):
         """
         Display text on the XTouch device at a specific offset.
 
@@ -197,7 +199,7 @@ class XTouch:
         self.output.send(self.__display_msg(text, offset))
         self.__state.display_text = self.__state.display_text[:offset] + text + self.__state.display_text[offset + len(text):]
 
-    def set_display_color(self, color, channel):
+    def set_display_color(self, channel: int, color: int):
         """
         Set the display color on the XTouch device.
 
@@ -217,7 +219,7 @@ class XTouch:
         self.output.send(self.__display_color_msg())
         self.__state.display_colors[channel] = color
         
-    def set_raw_display_color(self, colors: list):
+    def set_raw_display_color(self, colors: list[int]):
         if len(colors) != 8:
             raise ValueError("Color list must be of length 8")
         if all(isinstance(c, XTouchColor) for c in colors):
@@ -228,7 +230,7 @@ class XTouch:
         self.output.send(self.__display_color_msg())
         self.__state.display_colors = colors
         
-    def set_fader(self, channel, db=None, pos=None):
+    def set_fader(self, channel: int, db: float=None, pos: int=None):
         """
         Set the fader position on the XTouch device.
 
@@ -249,14 +251,10 @@ class XTouch:
             if pos < self.__min_pitchbend or pos > self.__max_pitchbend:
                 raise ValueError(f"pos value must be between {self.__min_pitchbend} and {self.__max_pitchbend}")
             value = pos
-
-        self.output.send(mido.Message("pitchwheel", channel=channel, pitch=value))
-        self.__state.faders[channel] = value
+        if not self.__state.faders[channel] == value:
+            self.output.send(mido.Message("pitchwheel", channel=channel, pitch=int(value)))
+            self.__state.faders[channel] = value
     
-
-
-
-
 
     def set_button_led(self, channel: int, button: XTouchButton| int, state: XTouchButtonLED| bool| int):
         """
@@ -269,7 +267,6 @@ class XTouch:
         :raises TypeError: If state is not a valid type (XTouchButtonLED, bool, int).
         Set the LED state for a button on the XTouch device.
         """
-
         if not (0 <= channel <= 7):
             raise IndexError("Channel must be between 0 and 7")
         if isinstance(button, XTouchButton):
@@ -284,18 +281,17 @@ class XTouch:
             state = int(state)
         elif not (0 <= state <= 2):
             raise ValueError("State must be between 0 and 2 or an instance of XTouchButtonLED or bool")
-        self.__state.button_leds[channel][button] = state
+        if self.__state.button_leds[channel][button] == state:
+            return
         # nice one liner to set the button led velocity
         # if state is 0 velocity is 0, if state is 1 velocity is 127, if state is 2 velocity is 1 (for blinking)
         velocity = 1 if state == 2 else state*127
         int_button = button * 8 + channel
         self.output.send(mido.Message("note_on", note=int_button, velocity=velocity))
         self.__state.button_leds[channel][button] = state
-
-    def set_encoder_ring(self, channel, value, mode: XTouchEncoderRing, light=False):
+    def set_encoder_ring(self, channel: int, value: int, mode: XTouchEncoderRing|int, light: bool=False):
         """
         Set the encoder ring mode and value on the XTouch device.
-
         :param channel: The channel of the encoder to set.
         :param value: The value to set the encoder to.
         :param mode: The mode to set the encoder to.
@@ -317,11 +313,9 @@ class XTouch:
         self.output.send(mido.Message("control_change", control=channel + 48, value=mode * 16 + value))
         self.__state.encoder_rings[channel] = (mode, value, light)
         
-
-    def set_level_meter(self, channel, level):
+    def set_level_meter(self, channel: int, level: int):
         """
         Set the level meter value on the XTouch device.
-
         :param channel: The channel to set the level meter for.
         :param level: The level to set the meter to.
         :raises IndexError: If the channel is out of range.
@@ -335,11 +329,6 @@ class XTouch:
             level = 14
         self.output.send(mido.Message("aftertouch", value=level + 16 * channel))
     
-
-
-
-
-
     
     def __midi_callback(self, msg: mido.Message):
         """

@@ -1,7 +1,7 @@
-import Tests.XTouchLibOld as XTouchLibOld
-from Tests.XTouchLibOld import XTouchColor as XTColor
-from Tests.XTouchLibOld import XTouchButton as XTButton
-from Tests.XTouchLibOld import XTouchEncoderRing as XTEncoder
+import XTouchLibOld as XTouchLibOld
+from XTouchLibOld import XTouchColor as XTColor
+from XTouchLibOld import XTouchButton as XTButton
+from XTouchLibOld import XTouchEncoderRing as XTEncoder
 import time
 import logging
 import numpy as np
