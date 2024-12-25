@@ -23,12 +23,12 @@ def level_interpolation(db):
 
 
 class App:
-    def __init__(self, vm = voicemeeter.api("potato")):
+    def __init__(self, vme = voicemeeter.api("potato")):
         self.xt = XTouch()
         self.running = True
-        vm.event.pdirty = True
-        vm.event.ldirty = True
-        self.vm = vm
+        vme.event.pdirty = True
+        vme.event.ldirty = True
+        self.vm = vme
         
         self.levels = [0] * 16
         self.channel_mount_list = [3,4,5,6,7,9,10,11]
