@@ -53,7 +53,7 @@ class XTouchStateUnchecked:
         state.display_colors = self.display_colors.copy()
         state.display_text = self.display_text
         state.button_leds = [buttons.copy() for buttons in self.button_leds]
-        state.encoder_rings = [ring.copy() for ring in self.encoder_rings]
+        state.encoder_rings = self.encoder_rings.copy()
         state.faders = self.faders.copy()
         return state
 

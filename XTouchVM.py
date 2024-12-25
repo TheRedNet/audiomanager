@@ -4,12 +4,27 @@ import voicemeeterlib as voicemeeter
 from threading import Thread
 import time
 import XTouchVMinterface as xtvmi
+import XtouchVMconfig as xtcfg
+import mido
+import islocked
 
 logging.basicConfig(level=logging.INFO)
 
+
+def level_interpolation(db):
+    if db == -200:
+        return 0
+    db = round(db, 0)
+    db_list = [-200, -100, -50, -40, -35, -30, -25, -20, -15, -10, -5, 0, 5]
+    for i in range(1,len(db_list)):
+        if db_list[i - 1] < db <= db_list[i]:
+            return i
+    return 13
+
+
 class App:
     def __init__(self, vm = voicemeeter.api("potato")):
-        self.xt = XTouch(button_callback=self.button_callback, fader_callback=self.fader_callback, touch_callback=self.fader_touch_callback)
+        self.xt = XTouch()
         self.running = True
         vm.event.pdirty = True
         vm.event.ldirty = True
@@ -24,33 +39,31 @@ class App:
         
         self.vmint = xtvmi.VMInterfaceFunctions(self.vm)
         self.vmstate = xtvmi.VMInterfaceFunctions.VMState()
+        self.slockd = self.ScreenLockDetector(xtouch=self.xt)
+        self.xt.change_callback(direct_midi_hook_callback=self.slockd.direct_midi_hook, button_callback=self.button_callback, fader_callback=self.fader_callback, touch_callback=self.fader_touch_callback)
+        self.config = xtcfg.Config()
         self.vmstate.sync(self.vm)
         self.update_parameters()
+        self.update_displays()
         
+
 
         
     def close(self):
         self.running = False
         del self.xt
-        
-    
-    def level_interpolation(self, db):
-        if db == -200:
-            return 0
-        db = round(db, 0)
-        db_list = [-200, -100, -50, -40, -35, -30, -25, -20, -15, -10, -5, 0, 5]
-        for i in range(1,len(db_list)):
-            if db > db_list[i-1] and db <= db_list[i]:
-                return i
-        return 13
-    
+
+    def update_displays(self):
+        colors = [0] * 8
+        for i in range(8):
+            chanconfig = self.config.settings["channels"][self.channel_mount_list[i]]
+            colors[i] = chanconfig["color"]
+            self.xt.set_display_text(i, 1, chanconfig["name"])
+        self.xt.set_raw_display_color(colors)
     
     def update_levels(self):
         for i in range(8):
-            level = self.level_interpolation(self.vmint.get_level(self.channel_mount_list[i]))
-            channel = self.channel_mount_list[i]
-            channel_name = f"{"i" if channel <= 7 else "o"}{str((channel%8)+1)}"
-            self.xt.set_display_text(i,1, f"{str(level).ljust(2)} {channel_name}")
+            level = level_interpolation(self.vmint.get_level(self.channel_mount_list[i]))
             if not level == 0:
                 self.xt.set_level_meter(i, level)
                 
@@ -125,6 +138,43 @@ class App:
         params = self.vmint.get_channel_params(vchannel)
         params.gain = max(-60,round(db,1))
         
+    class ScreenLockDetector:
+        def __init__(self, xtouch: XTouch):
+            self.next_check = time.time()
+            self.locked = False
+            self.note_count = 0
+            self.xt = xtouch
+            self.xtstate_backup = self.xt.state
+            self.message_is_displayed = False
+            
+        def direct_midi_hook(self, msg: mido.Message):
+            if time.time() > self.next_check:
+                if islocked.islocked():
+                    self.locked = True
+                    self.next_check = time.time() + 1
+                else:
+                    self.locked = False
+                    self.next_check = time.time() + 5
+                    if self.message_is_displayed:
+                        self.xt.state = self.xtstate_backup
+                        self.message_is_displayed = False
+            if msg.type == "note_on":
+                prev_note_count = self.note_count
+                if msg.velocity == 0:
+                    self.note_count -= 1
+                else:
+                    self.note_count += 1
+                if self.locked:
+                    if self.message_is_displayed and self.note_count == 0:
+                        self.xt.state = self.xtstate_backup
+                        self.message_is_displayed = False
+                    elif not self.message_is_displayed and self.note_count > 0:
+                        self.xtstate_backup = self.xt.state
+                        self.xt.set_raw_display_color([XTouchColor.RED]*8)
+                        self.xt.set_raw_display_text(0, ("SCREEN SYSTEM "*4+"LOCKED SPERRE "*4))
+                        self.message_is_displayed = True
+            return self.locked
+
         
 with voicemeeter.api("potato") as vm:
     app = App(vm=vm)

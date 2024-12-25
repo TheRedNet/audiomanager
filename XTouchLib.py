@@ -219,16 +219,16 @@ class XTouch:
         self.output.send(self.__display_color_msg())
         self.__state.display_colors[channel] = color
         
-    def set_raw_display_color(self, colors: list[int]):
+    def set_raw_display_color(self, colors: list[int|XTouchColor]):
         if len(colors) != 8:
             raise ValueError("Color list must be of length 8")
         if all(isinstance(c, XTouchColor) for c in colors):
             colors = [c.value for c in colors]
         elif not all((0 <= c <= 7 and isinstance(c, int)) for c in colors):
             raise ValueError("Colors must be between 0 and 7 or instances of XTouchColor")
-        self.__display_colors = colors
-        self.output.send(self.__display_color_msg())
         self.__state.display_colors = colors
+        self.output.send(self.__display_color_msg())
+        
         
     def set_fader(self, channel: int, db: float=None, pos: int=None):
         """
@@ -337,7 +337,8 @@ class XTouch:
         """
         try:
             if self.__direct_midi_hook_callback is not None:
-                if not self.__direct_midi_hook_callback(msg):
+                boooo = self.__direct_midi_hook_callback(msg)
+                if boooo:
                     return
             if msg.type == "pitchwheel":
                 if self.__fader_callback is not None:
@@ -408,7 +409,7 @@ class XTouch:
         if state.display_colors != self.__state.display_colors:
             self.set_raw_display_color(state.display_colors)
         if state.display_text != self.__state.display_text:
-            self.set_raw_display_text(state.display_text, 0)
+            self.set_raw_display_text(0, state.display_text)
         for i in range(8):
             if state.faders[i] != self.__state.faders[i]:
                 self.set_fader(i, pos=state.faders[i])
