@@ -40,7 +40,10 @@ class App:
         self.vmint = xtvmi.VMInterfaceFunctions(self.vm)
         self.vmstate = xtvmi.VMInterfaceFunctions.VMState()
         self.slockd = self.ScreenLockDetector(xtouch=self.xt)
-        self.xt.change_callback(direct_midi_hook_callback=self.slockd.direct_midi_hook, button_callback=self.button_callback, fader_callback=self.fader_callback, touch_callback=self.fader_touch_callback)
+        self.xt.change_callback(direct_midi_hook_callback=self.slockd.direct_midi_hook,
+                                button_callback=self.button_callback,
+                                fader_callback=self.fader_callback,
+                                touch_callback=self.fader_touch_callback)
         self.config = xtcfg.Config()
         self.vmstate.sync(self.vm)
         self.update_parameters()
@@ -123,9 +126,14 @@ class App:
         elif 0 < self.fader_quick_touch[channel] < 3:
             print("reset")
             self.fader_quick_touch[channel] = 0
+        if state:
+            self.xt.set_display_text(channel, 1, f"{self.vmint.get_channel_params(self.channel_mount_list[channel]).gain:.1f}dB".rjust(7))
+        else:
+            self.update_displays()
+
             
     
-    def button_callback(self, channel, button, state, time_pressed):
+    def button_callback(self, channel: int, button: XTouchButton, state: bool, time_pressed: float):
         if button == XTouchButton.MUTE and state:
             channel = self.channel_mount_list[channel]
             params = self.vmint.get_channel_params(channel)
@@ -137,7 +145,12 @@ class App:
         vchannel = self.channel_mount_list[channel]
         params = self.vmint.get_channel_params(vchannel)
         params.gain = max(-60,round(db,1))
-        
+        self.xt.set_display_text(channel, 1, f"{params.gain:.1f}dB".rjust(7))
+
+
+
+
+
     class ScreenLockDetector:
         def __init__(self, xtouch: XTouch):
             self.next_check = time.time()
@@ -154,7 +167,7 @@ class App:
                     self.next_check = time.time() + 1
                 else:
                     self.locked = False
-                    self.next_check = time.time() + 5
+                    self.next_check = time.time() + 1
                     if self.message_is_displayed:
                         self.xt.state = self.xtstate_backup
                         self.message_is_displayed = False

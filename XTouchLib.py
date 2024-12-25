@@ -19,7 +19,12 @@ class XTouch:
     __sysex_device_query = [0x00]
     __max_pitchbend = 8188
     __min_pitchbend = -8192
-    def __init__(self, fader_callback: Callable[[int, float, int], None] = None, encoder_callback: Callable[[int, int], None] = None, encoder_press_callback: Callable[[int, bool], None] = None, button_callback: Callable[[int, XTouchButton, bool], None] = None, touch_callback: Callable[[int, bool], None] = None, direct_midi_hook_callback: Callable[[mido.Message], bool] = None):
+    def __init__(self, fader_callback: Callable[[int, float, int], None] = None,
+                 encoder_callback: Callable[[int, int], None] = None,
+                 encoder_press_callback: Callable[[int, bool, float], None] = None,
+                 button_callback: Callable[[int, XTouchButton, bool, float], None] = None,
+                 touch_callback: Callable[[int, bool, float], None] = None,
+                 direct_midi_hook_callback: Callable[[mido.Message], bool] = None):
     
         """
         Initialize the XTouch device.
@@ -29,6 +34,7 @@ class XTouch:
         :param encoder_press_callback: Callback function for encoder press events.
         :param button_callback: Callback function for button events.
         :param touch_callback: Callback function for touch events.
+        :param direct_midi_hook_callback: Callback function for direct MIDI messages. Callback function should return True if the message should be ignored.
         """
         try:
             input_name, output_name = self.__get_device_name()
@@ -57,7 +63,12 @@ class XTouch:
         #self.output.send(mido.Message.from_bytes(self.__sysex_prefix + self.__sysex_device_query + self.__sysex_suffix))
         
 
-    def change_callback(self, fader_callback: Callable[[int, float, int], None] = None, encoder_callback: Callable[[int, int], None] = None, encoder_press_callback: Callable[[int, bool], None] = None, button_callback: Callable[[int, XTouchButton, bool], None] = None, touch_callback: Callable[[int, bool], None] = None, direct_midi_hook_callback: Callable[[mido.Message], bool] = None):
+    def change_callback(self, fader_callback: Callable[[int, float, int], None] = None,
+                        encoder_callback: Callable[[int, int], None] = None,
+                        encoder_press_callback: Callable[[int, bool, float], None] = None,
+                        button_callback: Callable[[int, XTouchButton, bool, float], None] = None,
+                        touch_callback: Callable[[int, bool, float], None] = None,
+                        direct_midi_hook_callback: Callable[[mido.Message], bool] = None):
         """
         Change the callback functions for the XTouch device.
 
@@ -66,6 +77,7 @@ class XTouch:
         :param encoder_press_callback: Callback function for encoder press events.
         :param button_callback: Callback function for button events.
         :param touch_callback: Callback function for touch events.
+        :param direct_midi_hook_callback: Callback function for direct MIDI messages. Callback function should return True if the message should be ignored.
         """
         was_set = False
         if fader_callback is None or callable(fader_callback):
