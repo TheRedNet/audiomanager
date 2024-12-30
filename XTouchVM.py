@@ -31,11 +31,13 @@ class App:
         self.vm = vme
         
         self.levels = [0] * 16
-        self.channel_mount_list = [3,4,5,6,7,9,10,11]
+        self.channel_mount_list_list = [[3,4,5,6,7,9,10,11],[0,1,2,3,4,5,6,7],[8,9,10,11,12,13,14,15]]
+        self.channel_mount_list_index = 0
+        self.channel_mount_list = self.channel_mount_list_list[0]
         
-        self.fader_quick_touch = [0]*8
-        self.fader_quick_touch_timeout = 0
-        self.fader_quick_touch_wait = False
+        #self.fader_quick_touch = [0]*8
+        #self.fader_quick_touch_timeout = 0
+        #self.fader_quick_touch_wait = False
         
         self.vmint = xtvmi.VMInterfaceFunctions(self.vm)
         self.vmstate = xtvmi.VMInterfaceFunctions.VMState()
@@ -43,7 +45,9 @@ class App:
         self.xt.change_callback(direct_midi_hook_callback=self.slockd.direct_midi_hook,
                                 button_callback=self.button_callback,
                                 fader_callback=self.fader_callback,
-                                touch_callback=self.fader_touch_callback)
+                                touch_callback=self.fader_touch_callback,
+                                encoder_callback=self.encoder_callback,
+                                encoder_press_callback=self.encoder_press_callback)
         self.config = xtcfg.Config()
         self.vmstate.sync(self.vm)
         self.update_parameters()
@@ -87,45 +91,73 @@ class App:
                 self.update_levels()
             if self.vm.pdirty:
                 self.update_parameters()
-            if self.fader_quick_touch_wait:
-                self.quick_touch_wait()
+            #if self.fader_quick_touch_wait:
+            #    self.quick_touch_wait()
             self.xt.set_display_text(0, 0, f"T{(time_taken*1000):.1f}")
             time_taken = time.time()-time_start
             if time_taken < 0.1:
                 time.sleep(0.1-time_taken)
             else:
                 logging.warning(f"LAG: Time taken: {time_taken} seconds")
-
+                
     
-    def quick_touch_wait(self):
-        if self.fader_quick_touch_timeout > time.time():
-            return
-        else:
-            for i in range(8):
-                if self.fader_quick_touch[i] == 3:
-                    self.fader_quick_touch[i] = 0
-                    self.xt.set_button_led(i, XTouchButton.SELECT, False)
-            self.fader_quick_touch_wait = False
+    def update_encoder_rings(self):
+        #channel 1 encoder ring
+        if self.channel_mount_list_index == 0:
+            self.xt.set_encoder_ring(channel=0, value=11, mode=XTouchEncoderRing.WRAP)
+        elif self.channel_mount_list_index == 1:
+            self.xt.set_encoder_ring(channel=0, value=1, mode=XTouchEncoderRing.PAN)
+        elif self.channel_mount_list_index == 2:
+            self.xt.set_encoder_ring(channel=0, value=11, mode=XTouchEncoderRing.PAN)
+    
+    def encoder_callback(self, channel, ticks):
+        if channel == 0:
+            self.channel_mount_list_index += ticks
+            self.channel_mount_list_index = self.channel_mount_list_index % len(self.channel_mount_list_list)
+            self.channel_mount_list = self.channel_mount_list_list[self.channel_mount_list_index]
+            self.update_displays()
+            self.update_parameters()
+            self.update_encoder_rings()
+            
+    def encoder_press_callback(self, channel, state, time_pressed):
+        if state and channel == 0:
+            self.channel_mount_list_index = 0
+            self.channel_mount_list = self.channel_mount_list_list[self.channel_mount_list_index]
+            self.update_displays()
+            self.update_parameters()
+            self.xt.set_encoder_ring(channel=0, value=0, mode=XTouchEncoderRing.WRAP)
+
+    # Shitty feature that doesn't work and is not needed
+    #def quick_touch_wait(self):
+    #    if self.fader_quick_touch_timeout > time.time():
+    #        return
+    #    else:
+    #        for i in range(8):
+    #            if self.fader_quick_touch[i] == 3:
+    #                self.fader_quick_touch[i] = 0
+    #                self.xt.set_button_led(i, XTouchButton.SELECT, False)
+    #        self.fader_quick_touch_wait = False
     
     def fader_touch_callback(self, channel, state, time_pressed):
-        if ((time_pressed < 0.5 and state) or (time_pressed < 0.3 and not state)) and not self.fader_quick_touch_wait:
-            qt_count = self.fader_quick_touch[channel]
-            print(self.fader_quick_touch[channel])
-            if qt_count == 0 and not state:
-                self.fader_quick_touch[channel] = 1
-            elif qt_count < 2:
-                self.fader_quick_touch[channel] += 1
-            elif qt_count == 2 and not state:
-                self.fader_quick_touch_timeout = time.time() + 1.0
-                vchannel = self.channel_mount_list[channel]
-                params = self.vmint.get_channel_params(vchannel)
-                params.gain = 0
-                self.fader_quick_touch[channel] = 3
-                self.xt.set_button_led(channel, XTouchButton.SELECT, 1)
-                self.fader_quick_touch_wait = True
-        elif 0 < self.fader_quick_touch[channel] < 3:
-            print("reset")
-            self.fader_quick_touch[channel] = 0
+        # Shitty feature that doesn't work and is not needed maybe in the future
+        #if ((time_pressed < 0.5 and state) or (time_pressed < 0.3 and not state)) and not self.fader_quick_touch_wait:
+        #    qt_count = self.fader_quick_touch[channel]
+        #    print(self.fader_quick_touch[channel])
+        #    if qt_count == 0 and not state:
+        #        self.fader_quick_touch[channel] = 1
+        #    elif qt_count < 2:
+        #        self.fader_quick_touch[channel] += 1
+        #    elif qt_count == 2 and not state:
+        #        self.fader_quick_touch_timeout = time.time() + 1.0
+        #        vchannel = self.channel_mount_list[channel]
+        #        params = self.vmint.get_channel_params(vchannel)
+        #        params.gain = 0
+        #        self.fader_quick_touch[channel] = 3
+        #        self.xt.set_button_led(channel, XTouchButton.SELECT, 1)
+        #        self.fader_quick_touch_wait = True
+        #elif 0 < self.fader_quick_touch[channel] < 3:
+        #    print("reset")
+        #    self.fader_quick_touch[channel] = 0
         if state:
             self.xt.set_display_text(channel, 1, f"{self.vmint.get_channel_params(self.channel_mount_list[channel]).gain:.1f}dB".rjust(7))
         else:
@@ -140,8 +172,8 @@ class App:
             params.mute = not params.mute
     
     def fader_callback(self, channel, db, position):
-        if self.fader_quick_touch_timeout > time.time():
-            return
+        #if self.fader_quick_touch_timeout > time.time():
+        #    return
         vchannel = self.channel_mount_list[channel]
         params = self.vmint.get_channel_params(vchannel)
         params.gain = max(-60,round(db,1))
@@ -190,7 +222,7 @@ class App:
 
         
 with voicemeeter.api("potato") as vm:
-    app = App(vm=vm)
+    app = App(vme=vm)
     try:
         app.run()
     except Exception as e:
