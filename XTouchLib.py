@@ -8,6 +8,8 @@ from XTouchLibTypes import XTouchButton, XTouchButtonLED, XTouchEncoderRing, XTo
 
 __all__ = ["XTouch", "XTouchButton", "XTouchButtonLED", "XTouchEncoderRing", "XTouchColor", "XTouchState"]
 
+
+
 class XTouch:
     """Class to interact with the XTouch device."""
     __fader_db = [-70, -60, -30, -10, 0, 8]
@@ -45,6 +47,10 @@ class XTouch:
         
         self.logger = logging.getLogger("XTouch Library")
         
+        self.is_connected = True
+        
+        self.version_response_received = False
+        self.version_request_send_time = time.time()
         
         self.__fader_callback = fader_callback
         self.__encoder_callback = encoder_callback
@@ -56,12 +62,63 @@ class XTouch:
         
         self.__state = XTouchStateUnchecked()
         
+        self.output.send(mido.Message.from_bytes(self.__sysex_prefix + [0x13] + [0x00] + self.__sysex_suffix))
+        
         for msg in self.__display_hello_msg():
-            self.output.send(msg)
+            self.__send_midi(msg)
+            
         
         # Initiating the handshake(Disabled for now as it is not required for the X-Touch to function and does not work properly)
-        #self.output.send(mido.Message.from_bytes(self.__sysex_prefix + self.__sysex_device_query + self.__sysex_suffix))
+        #self.__send_midi(mido.Message.from_bytes(self.__sysex_prefix + self.__sysex_device_query + self.__sysex_suffix))
         
+    def __check_for_fishy_Xtouchconnection(self):
+        """
+        Checks if the Xtouch is connected properly.
+        Sometimes the Xtouch input breaks and the output is still working.
+        Dont know if this problem is detectable on my side or if the Xtouch firmware just stops sending midi messages without closing the connection.
+        """
+        def try_handshake():
+            self.output.send(mido.Message.from_bytes(self.__sysex_prefix + [0x13] + [0x00] + self.__sysex_suffix))
+        
+        if self.input.closed and not self.output.closed:
+            self.logger.error(f"FISHY STATE DETECTED input: {self.input.closed} output: {self.output.closed}")
+            self.is_connected = False
+            raise OSError(f"FISHY STATE DETECTED asymetric connection state input: {self.input.closed} output: {self.output.closed}")
+        
+        if time.time() - self.version_request_send_time > 1:
+            if not self.version_response_received:
+                self.logger.error("No version response received")
+                self.is_connected = False
+                raise OSError("No version response received after 1 second")
+            else:
+                self.version_response_received = False
+                self.version_request_send_time = time.time()
+                try_handshake()
+        
+        
+    
+    def __send_midi(self, msg: mido.Message):
+        """
+        Send a MIDI message to the XTouch device.
+
+        :param msg: The MIDI message.
+        """
+        if not self.is_connected:
+            return
+        if self.output is None:
+            self.is_connected = False
+            raise OSError("Output device None")
+        if self.output.closed:
+            self.is_connected = False
+            raise OSError("Output device closed")
+        #self.__check_for_fishy_Xtouchconnection()
+        try:    
+            self.output.send(msg)
+        except Exception as e:
+            #logging.error(e, exc_info=True)
+            self.is_connected = False
+            raise OSError("Error sending MIDI message likely the device disconnected")
+            
 
     def change_callback(self, fader_callback: Callable[[int, float, int], None] = None,
                         encoder_callback: Callable[[int, int], None] = None,
@@ -196,7 +253,7 @@ class XTouch:
         text = text[:7]
         text = text.ljust(7, " ")
         offset = channel * 7 + row * 8 * 7
-        self.output.send(self.__display_msg(text, offset))
+        self.__send_midi(self.__display_msg(text, offset))
         self.__state.display_text = self.__state.display_text[:offset] + text + self.__state.display_text[offset + len(text):]
         
     def set_raw_display_text(self, offset: int, text: str):
@@ -208,7 +265,7 @@ class XTouch:
         """
         if len(text) + offset > 112:
             raise IndexError("Text and offset exceed display length of 112 characters")
-        self.output.send(self.__display_msg(text, offset))
+        self.__send_midi(self.__display_msg(text, offset))
         self.__state.display_text = self.__state.display_text[:offset] + text + self.__state.display_text[offset + len(text):]
 
     def set_display_color(self, channel: int, color: int):
@@ -228,7 +285,7 @@ class XTouch:
             if not (0 <= color <= 7):
                 raise ValueError("Color must be between 0 and 7 or an instance of XTouchColor")
         self.__display_colors[channel] = color
-        self.output.send(self.__display_color_msg())
+        self.__send_midi(self.__display_color_msg())
         self.__state.display_colors[channel] = color
         
     def set_raw_display_color(self, colors: list[int|XTouchColor]):
@@ -239,7 +296,7 @@ class XTouch:
         elif not all((0 <= c <= 7 and isinstance(c, int)) for c in colors):
             raise ValueError("Colors must be between 0 and 7 or instances of XTouchColor")
         self.__state.display_colors = colors
-        self.output.send(self.__display_color_msg())
+        self.__send_midi(self.__display_color_msg())
         
         
     def set_fader(self, channel: int, db: float=None, pos: int=None):
@@ -264,7 +321,7 @@ class XTouch:
                 raise ValueError(f"pos value must be between {self.__min_pitchbend} and {self.__max_pitchbend}")
             value = pos
         if not self.__state.faders[channel] == value:
-            self.output.send(mido.Message("pitchwheel", channel=channel, pitch=int(value)))
+            self.__send_midi(mido.Message("pitchwheel", channel=channel, pitch=int(min(value, self.__max_pitchbend-30))))
             self.__state.faders[channel] = value
     
 
@@ -299,7 +356,7 @@ class XTouch:
         # if state is 0 velocity is 0, if state is 1 velocity is 127, if state is 2 velocity is 1 (for blinking)
         velocity = 1 if state == 2 else state*127
         int_button = button * 8 + channel
-        self.output.send(mido.Message("note_on", note=int_button, velocity=velocity))
+        self.__send_midi(mido.Message("note_on", note=int_button, velocity=velocity))
         self.__state.button_leds[channel][button] = state
     def set_encoder_ring(self, channel: int, value: int, mode: XTouchEncoderRing|int, light: bool=False):
         """
@@ -322,7 +379,7 @@ class XTouch:
             raise ValueError("Value must be between 0 and 15")
         if light:
             mode += 4
-        self.output.send(mido.Message("control_change", control=channel + 48, value=mode * 16 + value))
+        self.__send_midi(mido.Message("control_change", control=channel + 48, value=mode * 16 + value))
         self.__state.encoder_rings[channel] = (mode, value, light)
         
     def set_level_meter(self, channel: int, level: int):
@@ -339,7 +396,7 @@ class XTouch:
             raise ValueError("Level must be between 0 and 13")
         if level == 13:
             level = 14
-        self.output.send(mido.Message("aftertouch", value=level + 16 * channel))
+        self.__send_midi(mido.Message("aftertouch", value=level + 16 * channel))
     
     
     def __midi_callback(self, msg: mido.Message):
@@ -400,13 +457,13 @@ class XTouch:
                         if self.__touch_callback is not None:
                             self.__touch_callback(msg.note - 104, False, time_since_last)
             elif msg.type == "sysex":
-                print(msg.hex())
+                self.logger.info(msg.hex())
                 if 0 <= msg.data[4] <= 4 or msg.data[4] == 0x13 or msg.data[4] == 0x14:
                     self.__handle_sysex_handshake(msg)
             else:
                 print(msg)
         except Exception as e:
-            logging.error(e, exc_info=True)
+            self.logger.error(e, exc_info=True)
             
     
     
@@ -480,12 +537,12 @@ class XTouch:
             print("Handshake response sent")
             response = self.__sysex_prefix + [sysex_host_query_response] + list(msg.data[5:12]) + list(self.__generate_response_code(list(msg.data[12:16]))) + self.__sysex_suffix
             print("Responding with: ", (mido.Message.from_bytes(response)).hex())
-            self.output.send(mido.Message.from_bytes(response))
-            self.output.send(mido.Message.from_bytes(self.__sysex_prefix + [sysex_version_query] + [0x00] + self.__sysex_suffix))
+            self.__send_midi(mido.Message.from_bytes(response))
+            self.__send_midi(mido.Message.from_bytes(self.__sysex_prefix + [sysex_version_query] + [0x00] + self.__sysex_suffix))
         elif msg.data[sysex_command_byte] == sysex_host_accept:
             self.logger.info("Handshake successful")
             print("Handshake successful")
-            self.output.send(mido.Message.from_bytes(self.__sysex_prefix + [sysex_version_query] + [0x00] + self.__sysex_suffix))
+            self.__send_midi(mido.Message.from_bytes(self.__sysex_prefix + [sysex_version_query] + [0x00] + self.__sysex_suffix))
         elif msg.data[sysex_command_byte] == sysex_host_reject:
             self.logger.error("Handshake failed")
             print("Handshake failed")
@@ -494,6 +551,7 @@ class XTouch:
             raise ConnectionError("Handshake failed")
         elif msg.data[sysex_command_byte] == sysex_version_response:
             # v.v.v.v.v
+            self.version_response_received = True
             vstring = f"{msg.data[5]}.{msg.data[6]}.{msg.data[7]}.{msg.data[8]}.{msg.data[9]}"
-            self.logger.info(f"X-Touch Device version: {vstring}")
+            self.logger.debug(f"X-Touch Device version: {vstring}")
             
