@@ -12,6 +12,8 @@ import os
 from win11toast import toast
 import customtkinter as ctk
 import asyncio
+import XTouchVM
+import subprocess
 
 # Set to True to restart the script after closing the tray icon
 reboot = False
@@ -23,6 +25,8 @@ logging.basicConfig(level=logging.INFO,
                     filemode='w'
                     )
 coloredlogs.install(level='INFO', fmt='[%(asctime)s][%(levelname)s][%(name)s] %(message)s')
+
+
 
 def log_exceptions(logger):
     def decorator(func):
@@ -77,6 +81,49 @@ class VoicemeeterHandler(metaclass=ExceptionLoggingMeta):
     def restart(self):
         self.logger.info("Restarting Voicemeeter...")
         self.vm.command.restart()
+        
+
+class XTouchHandler(metaclass=ExceptionLoggingMeta):
+    def __init__(self):
+        self.logger = logging.getLogger(__class__.__name__)
+        self.logger.info("Initializing...")
+        self.xtouch: XTouchVM.App = None
+        self.running = False
+        
+    def main_thread(self):
+        try:
+            self.xtouch.run()
+        except Exception as e:
+            if isinstance(e, OSError):
+                self.logger.info(f"XTouch disconnected: {e}", exc_info=False)
+            else:
+                self.logger.error(f"Error in XTouchVM: {e}", exc_info=True)
+            self.running = False
+        self.running = False
+        self.xtouch = None
+    
+    def start(self, vm):
+        if self.running:
+            return False
+        try:
+            self.xtouch = XTouchVM.App(vm)
+        except Exception as e:
+            return False
+        self.logger.info("Starting XTouchVM...")
+        Thread(target=self.main_thread).start()
+        self.running = True
+    
+    def stop(self):
+        self.logger.info("Stopping XTouchVM...")
+        if self.running:
+            if self.xtouch:
+                self.xtouch.running = False
+                self.xtouch = None
+            self.running = False
+        return True
+    
+        
+        
 
 class FantomMidiHandler(metaclass=ExceptionLoggingMeta):
     def __init__(self):
@@ -198,6 +245,7 @@ class AudioDeviceMonitor(metaclass=ExceptionLoggingMeta):
         self.fantom_handler = fantom_handler
         self.vm_handler = voicemeeter_handler
         self.change_in_previous_check = False
+        self.xtouch_handler = XTouchHandler()
 
     def get_device_count(self):
         return self.p.get_device_count()
@@ -234,7 +282,7 @@ class AudioDeviceMonitor(metaclass=ExceptionLoggingMeta):
             else:
                 if self.change_in_previous_check:
                     self.change_in_previous_check = False
-            
+            self.xtouch_handler.start(vm=self.vm_handler.vm)
             frequency = 1
             while self.running and wait_time > 0:
                 if wait_time % 5 == 0 and not self.change_in_previous_check:
@@ -254,6 +302,7 @@ class AudioDeviceMonitor(metaclass=ExceptionLoggingMeta):
     def stop_monitoring(self):
         self.logger.info("Stopping monitoring thread...")
         self.running = False
+        self.xtouch_handler.stop()
         if hasattr(self, 'monitor_thread'):
             self.monitor_thread.join()
 
@@ -269,6 +318,7 @@ class LogWindow(metaclass=ExceptionLoggingMeta):
         self.text_area = ctk.CTkTextbox(root, wrap="word", state="normal", font=("Courier New", 15))
         self.text_area.bind("<Key>", lambda e: "break")  # Prevent user from typing
         self.text_area.pack(padx=10, pady=10, expand=True, fill="both")
+        self.text_area.bind("<MouseWheel>", self.disable_autoscroll)
 
         self.log_level_var = ctk.StringVar(value='INFO')
         self.log_level_menu = ctk.CTkOptionMenu(root, variable=self.log_level_var, values=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], command=self.change_log_level)
@@ -281,6 +331,9 @@ class LogWindow(metaclass=ExceptionLoggingMeta):
         self.line_count = 0
         self.update_log()
         self.closed = True
+
+    def disable_autoscroll(self, event):
+        self.auto_scroll_var.set(False)
 
     def change_log_level(self, level):
         logging.getLogger().setLevel(level)
@@ -386,6 +439,8 @@ class TrayIcon():
         self.icon.run()
 
 
+
+
 def main():
     logger = logging.getLogger("Main")
     logger.info("Starting...")
@@ -424,4 +479,8 @@ if __name__ == "__main__":
     except Exception as e:
         logging.error(f"Exception in main: {e}", exc_info=True)
     if reboot:
-        os.system('.\\Scripts\\python.exe audiomanager.py')
+        subprocess.Popen(
+            [".\\.venv\\Scripts\\pythonw.exe", ".\\audiomanager.pyw"],
+            cwd=".\\",
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
