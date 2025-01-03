@@ -8,7 +8,7 @@ import XtouchVMconfig as xtcfg
 import mido
 import islocked
 
-logging.basicConfig(level=logging.INFO)
+
 
 
 def level_interpolation(db):
@@ -30,8 +30,10 @@ class App:
         vme.event.ldirty = True
         self.vm = vme
         
+        self.invoke_full_refresh = False
+        
         self.levels = [0] * 16
-        self.channel_mount_list_list = [[3,4,5,6,7,9,10,11],[0,1,2,3,4,5,6,7],[8,9,10,11,12,13,14,15]]
+        self.channel_mount_list_list = [[3,4,5,6,7,9,10,12],[8,9,10,11,12,13,14,15],[0,1,2,3,4,5,6,7]]
         self.channel_mount_list_index = 0
         self.channel_mount_list = self.channel_mount_list_list[0]
         
@@ -83,14 +85,23 @@ class App:
                 self.xt.set_button_led(i, XTouchButton.SOLO, params.solo)
             self.xt.set_fader(i, db=min(8,params.gain))
 
+    def full_refresh(self):
+        self.update_parameters()
+        self.update_displays()
+        self.update_levels()
+        self.invoke_full_refresh = False
+        
     def run(self):
         time_taken = 0
         while self.running:
             time_start = time.time()
-            if self.vm.ldirty:
-                self.update_levels()
-            if self.vm.pdirty:
-                self.update_parameters()
+            if self.invoke_full_refresh:
+                self.full_refresh()
+            else:
+                if self.vm.ldirty:
+                    self.update_levels()
+                if self.vm.pdirty:
+                    self.update_parameters()
             #if self.fader_quick_touch_wait:
             #    self.quick_touch_wait()
             self.xt.set_display_text(0, 0, f"T{(time_taken*1000):.1f}")
@@ -105,20 +116,26 @@ class App:
         #channel 1 encoder ring
         if self.channel_mount_list_index == 0:
             self.xt.set_encoder_ring(channel=0, value=11, mode=XTouchEncoderRing.WRAP)
-        elif self.channel_mount_list_index == 1:
-            self.xt.set_encoder_ring(channel=0, value=1, mode=XTouchEncoderRing.PAN)
         elif self.channel_mount_list_index == 2:
+            self.xt.set_encoder_ring(channel=0, value=1, mode=XTouchEncoderRing.PAN)
+        elif self.channel_mount_list_index == 1:
             self.xt.set_encoder_ring(channel=0, value=11, mode=XTouchEncoderRing.PAN)
     
     def encoder_callback(self, channel, ticks):
         if channel == 0:
-            self.channel_mount_list_index += ticks
+            self.channel_mount_list_index -= ticks
             self.channel_mount_list_index = self.channel_mount_list_index % len(self.channel_mount_list_list)
             self.channel_mount_list = self.channel_mount_list_list[self.channel_mount_list_index]
-            self.update_displays()
-            self.update_parameters()
+            self.invoke_full_refresh = True
             self.update_encoder_rings()
+        if 6 <= channel <= 7:
+            self.channel_mount_list = self.channel_mount_list.copy()
+            vchannel = self.channel_mount_list[channel]
+            new_channel = (vchannel - ticks) % 16
+            self.channel_mount_list[channel] = new_channel
+            self.invoke_full_refresh = True
             
+        
     def encoder_press_callback(self, channel, state, time_pressed):
         if state and channel == 0:
             self.channel_mount_list_index = 0
@@ -126,6 +143,11 @@ class App:
             self.update_displays()
             self.update_parameters()
             self.xt.set_encoder_ring(channel=0, value=0, mode=XTouchEncoderRing.WRAP)
+        if state and 6 <= channel <= 7:
+            self.channel_mount_list = self.channel_mount_list.copy()
+            self.channel_mount_list[channel] = self.channel_mount_list_list[self.channel_mount_list_index][channel]
+            self.update_parameters()
+            self.update_displays()
 
     # Shitty feature that doesn't work and is not needed
     #def quick_touch_wait(self):
@@ -220,11 +242,12 @@ class App:
                         self.message_is_displayed = True
             return self.locked
 
-        
-with voicemeeter.api("potato") as vm:
-    app = App(vme=vm)
-    try:
-        app.run()
-    except Exception as e:
-        logging.exception(e, exc_info=True)
-        print("Exiting... Goodbye!")
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    with voicemeeter.api("potato") as vm:
+        app = App(vme=vm)
+        try:
+            app.run()
+        except Exception as e:
+            logging.exception(e, exc_info=True)
+            print("Exiting... Goodbye!")
