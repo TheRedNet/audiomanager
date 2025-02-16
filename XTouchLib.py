@@ -223,6 +223,16 @@ class XTouch:
             msglist.append(mido.Message("pitchwheel", channel=i, pitch=4384))
             # Clear encoder rings
             msglist.append(mido.Message("control_change", control=i + 48, value=0))
+            # Configure level meters
+            """
+            mode bit map in the form of (0000 0lps):
+            l Enable level meter on LCD
+            p Enable peak hold display (horizontal only)
+            s Enable Signal LED
+            unnecessary as the X-Touch does not have a LCD level meter
+            """
+            #msglist.append(mido.Message.from_bytes(self.__sysex_prefix + [0x20] + [i] + [0b00000011] + self.__sysex_suffix))
+        
         
         # Clear buttons
         for i in range(32):
@@ -233,6 +243,7 @@ class XTouch:
         # Clear displays
         mackie_string = [ord(" ")] * 7 * 16
         msglist.append(mido.Message.from_bytes(self.__sysex_prefix + self.__sysex_display_command + [0x00] + mackie_string + self.__sysex_suffix))
+
         
         return msglist
 
@@ -552,6 +563,7 @@ class XTouch:
         elif msg.data[sysex_command_byte] == sysex_version_response:
             # v.v.v.v.v
             self.version_response_received = True
-            vstring = f"{msg.data[5]}.{msg.data[6]}.{msg.data[7]}.{msg.data[8]}.{msg.data[9]}"
+            vstring = [chr(c) for c in msg.data[5:]]
+            vstring = "".join(vstring)
             self.logger.info(f"X-Touch Device version: {vstring}")
             
