@@ -159,7 +159,7 @@ class XTouch:
             raise ValueError("No valid callback functions provided")
         
 
-    def __del__(self):
+    def close(self):
         """Clean up the XTouch device."""
         if self.input is not None:
             self.input.close()
@@ -457,7 +457,7 @@ class XTouch:
                         if self.__touch_callback is not None:
                             self.__touch_callback(msg.note - 104, False, time_since_last)
             elif msg.type == "sysex":
-                self.logger.info(msg.hex())
+                self.logger.debug(msg.hex())
                 if 0 <= msg.data[4] <= 4 or msg.data[4] == 0x13 or msg.data[4] == 0x14:
                     self.__handle_sysex_handshake(msg)
             else:
@@ -553,5 +553,5 @@ class XTouch:
             # v.v.v.v.v
             self.version_response_received = True
             vstring = f"{msg.data[5]}.{msg.data[6]}.{msg.data[7]}.{msg.data[8]}.{msg.data[9]}"
-            self.logger.debug(f"X-Touch Device version: {vstring}")
+            self.logger.info(f"X-Touch Device version: {vstring}")
             
