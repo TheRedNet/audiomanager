@@ -5,7 +5,7 @@ from threading import Thread
 import mido
 import logging
 import pystray
-from pystray import MenuItem as item
+from pystray import MenuItem as item, Menu as menu
 from PIL import Image, ImageDraw, ImageFont
 import coloredlogs
 import os
@@ -25,6 +25,11 @@ logging.basicConfig(level=logging.INFO,
                     filemode='w'
                     )
 coloredlogs.install(level='INFO', fmt='[%(asctime)s][%(levelname)s][%(name)s] %(message)s')
+
+class StateStore:
+    def __init__(self):
+        self.run_xtouch = True
+        self.run_fantom = True
 
 
 
@@ -118,6 +123,8 @@ class XTouchHandler(metaclass=ExceptionLoggingMeta):
         if self.running:
             if self.xtouch:
                 self.xtouch.running = False
+                self.xtouch.close()
+                time.sleep(0.1)
                 self.xtouch = None
             self.running = False
         return True
@@ -234,9 +241,10 @@ class FantomMidiHandler(metaclass=ExceptionLoggingMeta):
         self.logger.info("FANTOM device connected.")
 
 class AudioDeviceMonitor(metaclass=ExceptionLoggingMeta):
-    def __init__(self, fantom_handler=FantomMidiHandler, voicemeeter_handler=VoicemeeterHandler):
+    def __init__(self, fantom_handler=FantomMidiHandler, voicemeeter_handler=VoicemeeterHandler, state_store: StateStore = StateStore()):
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.info("Initializing...")
+        self.state_store = state_store
         self.notify = Notificator()
         pii = pyaudio.PyAudio()
         self.previous_devices = pii.get_device_count()
@@ -265,14 +273,16 @@ class AudioDeviceMonitor(metaclass=ExceptionLoggingMeta):
                 
                 if current_devices > self.previous_devices:
                     self.logger.info(f"New device connected.{current_devices} > {self.previous_devices}")
-                    was_fantom = self.fantom_handler.check_fantom_devices()
+                    if self.state_store.run_fantom:
+                        was_fantom = self.fantom_handler.check_fantom_devices()
                     if not self.change_in_previous_check and not was_fantom:
                         self.notify.notification("Audio Device Change", "New audio device connected.")
                     self.vm_handler.restart()
                     
                 elif current_devices < self.previous_devices:
                     self.logger.info(f"Device disconnected.{current_devices} > {self.previous_devices}")
-                    was_fantom = self.fantom_handler.check_if_fantom_disconnected()
+                    if self.state_store.run_fantom:
+                        was_fantom = self.fantom_handler.check_if_fantom_disconnected()
                     if not self.change_in_previous_check and not was_fantom:
                         self.notify.notification("Audio Device Change", "Audio device disconnected.")
                         
@@ -282,12 +292,19 @@ class AudioDeviceMonitor(metaclass=ExceptionLoggingMeta):
             else:
                 if self.change_in_previous_check:
                     self.change_in_previous_check = False
-            self.xtouch_handler.start(vm=self.vm_handler.vm)
             frequency = 1
             while self.running and wait_time > 0:
                 if wait_time % 5 == 0 and not self.change_in_previous_check:
                     if self.fantom_handler.is_running():
-                        self.fantom_handler.check_if_fantom_disconnected()
+                        if self.state_store.run_fantom:
+                            self.fantom_handler.check_if_fantom_disconnected()
+                        else:
+                            self.fantom_handler.stop()
+                if self.state_store.run_xtouch:
+                    if not self.xtouch_handler.running:
+                        self.xtouch_handler.start(vm=self.vm_handler.vm)
+                else:
+                    self.xtouch_handler.stop()
                 
                 time.sleep(frequency)
                 wait_time -= frequency
@@ -378,11 +395,22 @@ class LogWindow(metaclass=ExceptionLoggingMeta):
         #print(f"Inserted line with level {level} and color {color_map.get(level, 'black')}")  # Debug print
 
 class TrayIcon():
-    def __init__(self):
+    def __init__(self, state_store: StateStore = StateStore()):
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.info("Initializing...")
+        self.state_store = state_store
         self.icon = pystray.Icon("AudioManager")
-        self.icon.menu = pystray.Menu(item('Log Window', self.show_log_window, default=True),item("Restart", self.on_restart), item('Exit', self.on_exit))
+        
+        self.icon.menu = pystray.Menu(
+            item('Log Window', self.show_log_window, default=True),
+            item("Services", menu(
+                item("xtouch", lambda: setattr(self.state_store, 'run_xtouch', not self.state_store.run_xtouch), checked=lambda item: self.state_store.run_xtouch, radio=True),
+                item("fantom", lambda: setattr(self.state_store, 'run_fantom', not self.state_store.run_fantom), checked=lambda item: self.state_store.run_fantom, radio=True))
+                ),
+            item("Restart", self.on_restart), 
+            item('Exit', self.on_exit)
+            )
+        
         self.icon.icon = self.create_image()
         self.icon.title = "Audio Manager"
         self.reboot = False
@@ -442,15 +470,16 @@ class TrayIcon():
 
 
 def main():
+    state = StateStore()
     logger = logging.getLogger("Main")
     logger.info("Starting...")
     vmh = VoicemeeterHandler('potato')
     vmh.connect()
     fantom_handler = FantomMidiHandler()
-    monitor = AudioDeviceMonitor(fantom_handler, vmh)
+    monitor = AudioDeviceMonitor(fantom_handler, vmh, state)
     monitor.start_monitoring()
     fantom_handler.check_fantom_devices()
-    tray_icon = TrayIcon()    
+    tray_icon = TrayIcon(state_store=state)    
 
     def exit():
         logger.info("Stopping...")
