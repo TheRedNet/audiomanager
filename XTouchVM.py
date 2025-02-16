@@ -33,7 +33,8 @@ class App:
         self.invoke_full_refresh = False
         
         self.levels = [0] * 16
-        self.channel_mount_list_list = [[3,4,5,6,7,9,10,12],[8,9,10,11,12,13,14,15],[0,1,2,3,4,5,6,7]]
+        self.channel_mount_list_list_default = [[3,4,5,6,7,9,10,12],[8,9,10,11,12,13,14,15],[0,1,2,3,4,5,6,7]]
+        self.channel_mount_list_list = [list.copy() for list in self.channel_mount_list_list_default]
         self.channel_mount_list_index = 0
         self.channel_mount_list = self.channel_mount_list_list[0]
         
@@ -60,6 +61,8 @@ class App:
         
     def close(self):
         self.running = False
+        self.xt.close()
+        time.sleep(0.1)
         del self.xt
 
     def update_displays(self):
@@ -77,18 +80,29 @@ class App:
                 self.xt.set_level_meter(i, level)
                 
     def update_parameters(self):
+        any_solos = False
         for i in range(8):
             channel = self.channel_mount_list[i]
             params = self.vmint.get_channel_params(channel)
             self.xt.set_button_led(i, XTouchButton.MUTE, params.mute)
             if self.vmint.is_strip(channel):
                 self.xt.set_button_led(i, XTouchButton.SOLO, params.solo)
+                if params.solo:
+                    any_solos = True
             self.xt.set_fader(i, db=min(8,params.gain))
+        if any_solos:
+            for i in range(8):
+                channel = self.channel_mount_list[i]
+                if self.vmint.is_strip(channel):
+                    params = self.vmint.get_channel_params(channel)
+                    if not params.solo and not params.mute:
+                        self.xt.set_button_led(i, XTouchButton.MUTE, XTouchButtonLED.BLINK)
 
     def full_refresh(self):
         self.update_parameters()
         self.update_displays()
         self.update_levels()
+        self.update_encoder_rings()
         self.invoke_full_refresh = False
         
     def run(self):
@@ -115,7 +129,7 @@ class App:
     def update_encoder_rings(self):
         #channel 1 encoder ring
         if self.channel_mount_list_index == 0:
-            self.xt.set_encoder_ring(channel=0, value=11, mode=XTouchEncoderRing.WRAP)
+            self.xt.set_encoder_ring(channel=0, value=1, mode=XTouchEncoderRing.WRAP)
         elif self.channel_mount_list_index == 2:
             self.xt.set_encoder_ring(channel=0, value=1, mode=XTouchEncoderRing.PAN)
         elif self.channel_mount_list_index == 1:
@@ -127,9 +141,7 @@ class App:
             self.channel_mount_list_index = self.channel_mount_list_index % len(self.channel_mount_list_list)
             self.channel_mount_list = self.channel_mount_list_list[self.channel_mount_list_index]
             self.invoke_full_refresh = True
-            self.update_encoder_rings()
         if 6 <= channel <= 7:
-            self.channel_mount_list = self.channel_mount_list.copy()
             vchannel = self.channel_mount_list[channel]
             new_channel = (vchannel - ticks) % 16
             self.channel_mount_list[channel] = new_channel
@@ -143,9 +155,15 @@ class App:
             self.update_displays()
             self.update_parameters()
             self.xt.set_encoder_ring(channel=0, value=0, mode=XTouchEncoderRing.WRAP)
-        if state and 6 <= channel <= 7:
-            self.channel_mount_list = self.channel_mount_list.copy()
-            self.channel_mount_list[channel] = self.channel_mount_list_list[self.channel_mount_list_index][channel]
+        if state and channel == 7:
+            self.channel_mount_list[channel] = self.channel_mount_list_list_default[self.channel_mount_list_index][channel]
+            self.update_parameters()
+            self.update_displays()
+        if state and channel == 6:
+            if not self.channel_mount_list[channel] == self.channel_mount_list_list_default[self.channel_mount_list_index][channel]:
+                self.channel_mount_list[channel] = self.channel_mount_list_list_default[self.channel_mount_list_index][channel]
+            else:
+                self.channel_mount_list[channel] += 1
             self.update_parameters()
             self.update_displays()
 
@@ -188,11 +206,19 @@ class App:
             
     
     def button_callback(self, channel: int, button: XTouchButton, state: bool, time_pressed: float):
-        if button == XTouchButton.MUTE and state:
-            channel = self.channel_mount_list[channel]
-            params = self.vmint.get_channel_params(channel)
-            params.mute = not params.mute
-    
+        if state:
+            if button == XTouchButton.MUTE:
+                channel = self.channel_mount_list[channel]
+                params = self.vmint.get_channel_params(channel)
+                params.mute = not params.mute
+            elif button == XTouchButton.SOLO:
+                channel = self.channel_mount_list[channel]
+                if self.vmint.is_strip(channel):
+                    params = self.vmint.get_channel_params(channel)
+                    params.solo = not params.solo
+
+
+
     def fader_callback(self, channel, db, position):
         #if self.fader_quick_touch_timeout > time.time():
         #    return
