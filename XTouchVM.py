@@ -21,6 +21,25 @@ def level_interpolation(db):
             return i
     return 13
 
+class Scheduler:
+    def __init__(self):
+        self.tasks = []
+    
+    def run_due(self):
+        for task, due, identifier in self.tasks:
+            if time.time() > due:
+                task()
+                self.tasks.remove((task, due, identifier))
+    
+    def add_task(self, task, wait, identifier="all"):
+        self.tasks.append((task, time.time() + wait, identifier))
+    
+    def cancel_task(self, identifier):
+        self.tasks = [task for task in self.tasks if task[2] != identifier]
+    
+    def clear(self):
+        self.tasks = []
+
 
 class App:
     def __init__(self, vme = voicemeeter.api("potato")):
@@ -31,7 +50,7 @@ class App:
         self.vm = vme
         
         self.invoke_full_refresh = False
-        
+        self.scheduler = Scheduler()
         self.levels = [0] * 16
         self.channel_mount_list_list_default = [[3,4,5,6,7,9,10,12],[8,9,10,11,12,13,14,15],[0,1,2,3,4,5,6,7]]
         self.channel_mount_list_list = [list.copy() for list in self.channel_mount_list_list_default]
@@ -41,6 +60,9 @@ class App:
         #self.fader_quick_touch = [0]*8
         #self.fader_quick_touch_timeout = 0
         #self.fader_quick_touch_wait = False
+        
+        self.shortcut_mode = 0
+        self.shortcut_text = " "
         
         self.vmint = xtvmi.VMInterfaceFunctions(self.vm)
         self.vmstate = xtvmi.VMInterfaceFunctions.VMState()
@@ -66,6 +88,7 @@ class App:
         del self.xt
 
     def update_displays(self):
+        self.xt.set_display_text(1, 0, self.shortcut_text)
         colors = [0] * 8
         for i in range(8):
             chanconfig = self.config.settings["channels"][self.channel_mount_list[i]]
@@ -116,6 +139,7 @@ class App:
                     self.update_levels()
                 if self.vm.pdirty:
                     self.update_parameters()
+            self.scheduler.run_due()
             #if self.fader_quick_touch_wait:
             #    self.quick_touch_wait()
             self.xt.set_display_text(0, 0, f"T{(time_taken*1000):.1f}")
@@ -124,16 +148,53 @@ class App:
                 time.sleep(0.1-time_taken)
             else:
                 logging.warning(f"LAG: Time taken: {time_taken} seconds")
-                
+    
+    
+    def shortcut_functions(self):
+        '''
+        shortcut functions changing multiple parameters at once
+        '''
+        def vr_mode(self: App):
+            self.vm.strip[0].mute = True
+            self.vm.strip[1].mute = False
+            self.vm.bus[4].mute = False
+            self.vm.bus[2].mute = True
+            self.vm.bus[3].mute = True
+        
+        def desktop_mode(self: App):
+            self.vm.strip[0].mute = False
+            self.vm.strip[1].mute = True
+            self.vm.bus[4].mute = True
+            self.vm.bus[2].mute = False
+            self.vm.bus[3].mute = False
+        return [
+            ("DESKTOP", desktop_mode),
+            ("VR", vr_mode),
+            ]
+    
+    def shortcut_callback(self):
+        self.shortcut_mode += 1
+        if self.shortcut_mode >= len(self.shortcut_functions()):
+            self.shortcut_mode = 0
+        self.shortcut_functions()[self.shortcut_mode][1](self)
+        self.shortcut_text = self.shortcut_functions()[self.shortcut_mode][0]
+        def reset_shortcut_text():
+            self.shortcut_text = " "
+            self.update_displays()
+        self.scheduler.cancel_task("reset_shortcut_text")
+        self.scheduler.add_task(reset_shortcut_text, 10, "reset_shortcut_text")
     
     def update_encoder_rings(self):
         #channel 1 encoder ring
         if self.channel_mount_list_index == 0:
-            self.xt.set_encoder_ring(channel=0, value=1, mode=XTouchEncoderRing.WRAP)
+            self.xt.set_encoder_ring(channel=0, value=0, mode=XTouchEncoderRing.WRAP)
         elif self.channel_mount_list_index == 2:
             self.xt.set_encoder_ring(channel=0, value=1, mode=XTouchEncoderRing.PAN)
         elif self.channel_mount_list_index == 1:
             self.xt.set_encoder_ring(channel=0, value=11, mode=XTouchEncoderRing.PAN)
+        
+        #channel 2 encoder ring
+        self.xt.set_encoder_ring(channel=1, value=0, mode=XTouchEncoderRing.WRAP, light=(not self.shortcut_mode == 0))
     
     def encoder_callback(self, channel, ticks):
         if channel == 0:
@@ -152,20 +213,19 @@ class App:
         if state and channel == 0:
             self.channel_mount_list_index = 0
             self.channel_mount_list = self.channel_mount_list_list[self.channel_mount_list_index]
-            self.update_displays()
-            self.update_parameters()
-            self.xt.set_encoder_ring(channel=0, value=0, mode=XTouchEncoderRing.WRAP)
+            self.invoke_full_refresh = True
+        if state and channel == 1:
+            self.shortcut_callback()
+            self.invoke_full_refresh = True
         if state and channel == 7:
             self.channel_mount_list[channel] = self.channel_mount_list_list_default[self.channel_mount_list_index][channel]
-            self.update_parameters()
-            self.update_displays()
+            self.invoke_full_refresh = True
         if state and channel == 6:
             if not self.channel_mount_list[channel] == self.channel_mount_list_list_default[self.channel_mount_list_index][channel]:
                 self.channel_mount_list[channel] = self.channel_mount_list_list_default[self.channel_mount_list_index][channel]
             else:
                 self.channel_mount_list[channel] += 1
-            self.update_parameters()
-            self.update_displays()
+            self.invoke_full_refresh = True
 
     # Shitty feature that doesn't work and is not needed
     #def quick_touch_wait(self):
@@ -203,8 +263,7 @@ class App:
         else:
             self.update_displays()
 
-            
-    
+
     def button_callback(self, channel: int, button: XTouchButton, state: bool, time_pressed: float):
         if state:
             if button == XTouchButton.MUTE:
