@@ -62,7 +62,11 @@ class App:
         #self.fader_quick_touch_wait = False
         
         self.shortcut_mode = 0
-        self.shortcut_text = " "
+        self.shortcut_text_default = "Mode"
+        self.shortcut_text = self.shortcut_text_default
+        
+        self.denoiser_text_default = "Dnoiser"
+        self.denoiser_text = self.denoiser_text_default
         
         self.vmint = xtvmi.VMInterfaceFunctions(self.vm)
         self.vmstate = xtvmi.VMInterfaceFunctions.VMState()
@@ -88,7 +92,11 @@ class App:
         del self.xt
 
     def update_displays(self):
-        self.xt.set_display_text(1, 0, self.shortcut_text)
+        self.xt.set_display_text(2, 0, self.shortcut_text)
+        if self.channel_mount_list_index == 0:
+            self.xt.set_display_text(1, 0, self.denoiser_text)
+        else:
+            self.xt.set_display_text(1, 0, " ")
         colors = [0] * 8
         for i in range(8):
             chanconfig = self.config.settings["channels"][self.channel_mount_list[i]]
@@ -120,6 +128,7 @@ class App:
                     params = self.vmint.get_channel_params(channel)
                     if not params.solo and not params.mute:
                         self.xt.set_button_led(i, XTouchButton.MUTE, XTouchButtonLED.BLINK)
+        self.update_encoder_rings()
 
     def full_refresh(self):
         self.update_parameters()
@@ -179,7 +188,7 @@ class App:
         self.shortcut_functions()[self.shortcut_mode][1](self)
         self.shortcut_text = self.shortcut_functions()[self.shortcut_mode][0]
         def reset_shortcut_text():
-            self.shortcut_text = " "
+            self.shortcut_text = self.shortcut_text_default
             self.update_displays()
         self.scheduler.cancel_task("reset_shortcut_text")
         self.scheduler.add_task(reset_shortcut_text, 10, "reset_shortcut_text")
@@ -194,7 +203,10 @@ class App:
             self.xt.set_encoder_ring(channel=0, value=11, mode=XTouchEncoderRing.PAN)
         
         #channel 2 encoder ring
-        self.xt.set_encoder_ring(channel=1, value=0, mode=XTouchEncoderRing.WRAP, light=(not self.shortcut_mode == 0))
+        self.xt.set_encoder_ring(channel=1, value=int(self.vm.strip[4].denoiser.knob) + 1, mode=XTouchEncoderRing.WRAP, light=False)
+        
+        #channel 3 encoder ring
+        self.xt.set_encoder_ring(channel=2, value=0, mode=XTouchEncoderRing.WRAP, light=(not self.shortcut_mode == 0))
     
     def encoder_callback(self, channel, ticks):
         if channel == 0:
@@ -202,7 +214,18 @@ class App:
             self.channel_mount_list_index = self.channel_mount_list_index % len(self.channel_mount_list_list)
             self.channel_mount_list = self.channel_mount_list_list[self.channel_mount_list_index]
             self.invoke_full_refresh = True
-        if 6 <= channel <= 7:
+        elif channel == 1:
+            if self.channel_mount_list_index == 0:
+                nv = self.vm.strip[4].denoiser.knob - ticks
+                self.vm.strip[4].denoiser.knob = min(10, max(0, nv))
+                self.denoiser_text = f"{self.vm.strip[4].denoiser.knob}".rjust(7)
+                self.invoke_full_refresh = True
+                self.scheduler.cancel_task("reset_denoiser_text")
+                def reset_denoiser_text():
+                    self.denoiser_text = self.denoiser_text_default
+                    self.update_displays()
+                self.scheduler.add_task(reset_denoiser_text, 5, "reset_denoiser_text")
+        elif 6 <= channel <= 7:
             vchannel = self.channel_mount_list[channel]
             new_channel = (vchannel - ticks) % 16
             self.channel_mount_list[channel] = new_channel
@@ -214,7 +237,7 @@ class App:
             self.channel_mount_list_index = 0
             self.channel_mount_list = self.channel_mount_list_list[self.channel_mount_list_index]
             self.invoke_full_refresh = True
-        if state and channel == 1:
+        if state and channel == 2:
             self.shortcut_callback()
             self.invoke_full_refresh = True
         if state and channel == 7:
