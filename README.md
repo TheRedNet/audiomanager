@@ -1,4 +1,4 @@
-XtouchVM.py is the script handling the XTouch and Voicemeeter. Start to connect voicemeeter to the xtouch
+XtouchVM.py is the script handling the XTouch Voicemeeter interface. Start to connect voicemeeter to the xtouch
 
 XTouchLib.py is a Library for interacting with the X-Touch in MC mode over Midi
 
