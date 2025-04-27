@@ -1,9 +1,14 @@
 import json
 import os
+import logging
 from XTouchLibTypes import XTouchColor
+
+def type_string_generator(channel):
+        return f"{"Physical" if channel%8 < 5 else "Virtual"}{"Input" if channel < 8 else "Output"}{(channel%8)+1}"
 
 class Config:
     def __init__(self, config_file='config.json'):
+        self.logger = logging.getLogger(__name__)
         self.config_file = config_file
         self.__settings = {
             "channels": {
@@ -25,13 +30,15 @@ class Config:
                 15:{"type": "output", "name": "Record", "color": XTouchColor.WHITE.value},
             }
         }
-        #self.generate_default_config()
-        #self.load_config()
+        self.generate_default_config()
+        self.load_config()
 
+    
+    
     def generate_default_config(self):
         for i in range(1, 16):
             self.__settings["channels"][i] = {
-                "type": "input" if i <= 7 else "output",
+                "type": type_string_generator(i),
                 "name": f"Input {i+1}" if i <= 7 else f"Output{i-7}",
                 "color": XTouchColor.GREEN.value if i <= 7 else XTouchColor.RED.value
             }
@@ -39,7 +46,62 @@ class Config:
     def load_config(self):
         if os.path.exists(self.config_file):
             with open(self.config_file, 'r') as file:
-                self.__settings = json.load(file)
+                json_settings = json.load(file)
+                settings = {}
+                parse_error = False
+                config_update = False
+                if "channels" in json_settings:
+                    settings["channels"] = {}
+                    for i in range(16):
+                        if str(i) in json_settings["channels"]:
+                            settings["channels"][i] = {}
+                            # Check if the channel is a dictionary and has the required keys
+                            if "type" in json_settings["channels"][str(i)]:
+                                if json_settings["channels"][str(i)]["type"] != type_string_generator(i):
+                                    self.logger.info(f"Outdated type in config file for channel {i}. Expected {type_string_generator(i)}, got {json_settings['channels'][str(i)]['type']}. Type will be updated.")
+                                    config_update = True
+                                settings["channels"][i]["type"] = type_string_generator(i)
+                            else:
+                                self.logger.error(f"Invalid config file format: Missing type for channel {i}.")
+                                parse_error = True
+                                break
+                            if "name" in json_settings["channels"][str(i)]:
+                                if len(json_settings["channels"][str(i)]["name"]) > 7:
+                                    self.logger.warning(f"Name too long in config file for channel {i}. The name will not fit on the XTouch.")
+                                settings["channels"][i]["name"] = json_settings["channels"][str(i)]["name"]
+                            else:
+                                self.logger.error(f"Invalid config file format: Missing name for channel {i}.")
+                                parse_error = True
+                                break
+                            if "color" in json_settings["channels"][str(i)]:
+                                if isinstance(json_settings["channels"][str(i)]["color"], int):
+                                    if json_settings["channels"][str(i)]["color"] in range(0, 8):
+                                        settings["channels"][i]["color"] = json_settings["channels"][str(i)]["color"]
+                                    else:
+                                        self.logger.error(f"Invalid config file format: Color value out of range for channel {i}. Expected 0-7, got {json_settings['channels'][str(i)]['color']}.")
+                                        parse_error = True
+                                        break
+                                else:
+                                    self.logger.error(f"Invalid config file format: Color value not an integer for channel {i}. Expected int, got {type(json_settings['channels'][str(i)]['color'])}.")
+                                    parse_error = True
+                                    break
+                            else:
+                                self.logger.error(f"Invalid config file format: Missing color for channel {i}.")
+                                parse_error = True
+                                break
+                                    
+                        else:
+                            self.logger.error(f"Invalid config file format: Missing channel {i} in \"channels\" key: {self.config_file}")
+                            parse_error = True
+                            break
+                else:
+                    self.logger.error(f"Invalid config file format: {self.config_file}. 'channels' key not found.")
+                    parse_error = True
+                if not parse_error:
+                    self.__settings = settings
+                    if config_update:
+                        self.logger.info("Saving updated config file.")
+                        self.save_config()
         else:
             self.save_config()
 
