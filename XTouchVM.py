@@ -57,10 +57,6 @@ class App:
         self.channel_mount_list_index = 0
         self.channel_mount_list = self.channel_mount_list_list[0]
         
-        #self.fader_quick_touch = [0]*8
-        #self.fader_quick_touch_timeout = 0
-        #self.fader_quick_touch_wait = False
-        
         self.shortcut_mode = 0
         self.shortcut_text_default = "Mode"
         self.shortcut_text = self.shortcut_text_default
@@ -249,38 +245,8 @@ class App:
             else:
                 self.channel_mount_list[channel] += 1
             self.invoke_full_refresh = True
-
-    # Shitty feature that doesn't work and is not needed
-    #def quick_touch_wait(self):
-    #    if self.fader_quick_touch_timeout > time.time():
-    #        return
-    #    else:
-    #        for i in range(8):
-    #            if self.fader_quick_touch[i] == 3:
-    #                self.fader_quick_touch[i] = 0
-    #                self.xt.set_button_led(i, XTouchButton.SELECT, False)
-    #        self.fader_quick_touch_wait = False
     
     def fader_touch_callback(self, channel, state, time_pressed):
-        # Shitty feature that doesn't work and is not needed maybe in the future
-        #if ((time_pressed < 0.5 and state) or (time_pressed < 0.3 and not state)) and not self.fader_quick_touch_wait:
-        #    qt_count = self.fader_quick_touch[channel]
-        #    print(self.fader_quick_touch[channel])
-        #    if qt_count == 0 and not state:
-        #        self.fader_quick_touch[channel] = 1
-        #    elif qt_count < 2:
-        #        self.fader_quick_touch[channel] += 1
-        #    elif qt_count == 2 and not state:
-        #        self.fader_quick_touch_timeout = time.time() + 1.0
-        #        vchannel = self.channel_mount_list[channel]
-        #        params = self.vmint.get_channel_params(vchannel)
-        #        params.gain = 0
-        #        self.fader_quick_touch[channel] = 3
-        #        self.xt.set_button_led(channel, XTouchButton.SELECT, 1)
-        #        self.fader_quick_touch_wait = True
-        #elif 0 < self.fader_quick_touch[channel] < 3:
-        #    print("reset")
-        #    self.fader_quick_touch[channel] = 0
         if state:
             self.xt.set_display_text(channel, 1, f"{self.vmint.get_channel_params(self.channel_mount_list[channel]).gain:.1f}dB".rjust(7))
         else:
