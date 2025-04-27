@@ -145,8 +145,6 @@ class App:
                 if self.vm.pdirty:
                     self.update_parameters()
             self.scheduler.run_due()
-            #if self.fader_quick_touch_wait:
-            #    self.quick_touch_wait()
             self.xt.set_display_text(0, 0, f"T{(time_taken*1000):.1f}")
             time_taken = time.time()-time_start
             if time_taken < 0.1:
@@ -268,8 +266,6 @@ class App:
 
 
     def fader_callback(self, channel, db, position):
-        #if self.fader_quick_touch_timeout > time.time():
-        #    return
         vchannel = self.channel_mount_list[channel]
         params = self.vmint.get_channel_params(vchannel)
         params.gain = max(-60,round(db,1))
