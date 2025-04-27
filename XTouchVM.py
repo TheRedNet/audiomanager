@@ -7,9 +7,13 @@ import XTouchVMinterface as xtvmi
 import XtouchVMconfig as xtcfg
 import mido
 import islocked
+from enum import Enum
 
 
-
+class Mode(Enum):
+    """Enumeration for XTouch modes."""
+    CHANNELS = 0
+    MATRIX = 1
 
 def level_interpolation(db):
     if db == -200:
@@ -40,6 +44,14 @@ class Scheduler:
     def clear(self):
         self.tasks = []
 
+class MatrixMode:
+    def __init__(self, xtouch: XTouch, vm = voicemeeter.api("potato")):
+        self.terminate = False
+        self.xt = xtouch
+        self.vm = vm
+        
+        
+
 
 class App:
     def __init__(self, vme = voicemeeter.api("potato")):
@@ -53,6 +65,7 @@ class App:
         self.scheduler = Scheduler()
         self.levels = [0] * 16
         self.channel_mount_list_list_default = [[3,4,5,6,7,9,10,12],[8,9,10,11,12,13,14,15],[0,1,2,3,4,5,6,7]]
+        self.channel_mount_list_list_names = ["Home","Outputs","Inputs"]
         self.channel_mount_list_list = [list.copy() for list in self.channel_mount_list_list_default]
         self.channel_mount_list_index = 0
         self.channel_mount_list = self.channel_mount_list_list[0]
@@ -67,20 +80,21 @@ class App:
         self.vmint = xtvmi.VMInterfaceFunctions(self.vm)
         self.vmstate = xtvmi.VMInterfaceFunctions.VMState()
         self.slockd = self.ScreenLockDetector(xtouch=self.xt)
-        self.xt.change_callback(direct_midi_hook_callback=self.slockd.direct_midi_hook,
-                                button_callback=self.button_callback,
-                                fader_callback=self.fader_callback,
-                                touch_callback=self.fader_touch_callback,
-                                encoder_callback=self.encoder_callback,
-                                encoder_press_callback=self.encoder_press_callback)
+        self.set_callbacks()
         self.config = xtcfg.Config()
         self.vmstate.sync(self.vm)
         self.update_parameters()
         self.update_displays()
         
 
+    def set_callbacks(self):
+        self.xt.change_callback(direct_midi_hook_callback=self.slockd.direct_midi_hook,
+                                button_callback=self.button_callback,
+                                fader_callback=self.fader_callback,
+                                touch_callback=self.fader_touch_callback,
+                                encoder_callback=self.encoder_callback,
+                                encoder_press_callback=self.encoder_press_callback)
 
-        
     def close(self):
         self.running = False
         self.xt.close()
@@ -88,6 +102,7 @@ class App:
         del self.xt
 
     def update_displays(self):
+        self.xt.set_display_text(0, 0, self.channel_mount_list_list_names[self.channel_mount_list_index])
         self.xt.set_display_text(2, 0, self.shortcut_text)
         if self.channel_mount_list_index == 0:
             self.xt.set_display_text(1, 0, self.denoiser_text)
@@ -145,7 +160,6 @@ class App:
                 if self.vm.pdirty:
                     self.update_parameters()
             self.scheduler.run_due()
-            self.xt.set_display_text(0, 0, f"T{(time_taken*1000):.1f}")
             time_taken = time.time()-time_start
             if time_taken < 0.1:
                 time.sleep(0.1-time_taken)
